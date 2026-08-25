@@ -110,19 +110,21 @@ server.on('upgrade', (request, socket, head) => {
   }
 });
 
-// Start HTTP and WebSocket server
-server.listen(config.port, config.host, async () => {
-  console.log('====================================================');
-  console.log(`  🚀 NodeSSH Backend Server running on http://${config.host}:${config.port}`);
-  console.log(`  📁 SQLite Database: ${config.dbPath}`);
-  console.log(`  🔐 Key Vault & AES-256-GCM Encryption: Ready`);
-  console.log(`  🌐 SSH Tunnel Engine & SOCKS5 Proxy: Ready`);
-  console.log(`  ⚡ WebSocket Terminal (/ws/terminal) & SFTP: Ready`);
-  console.log('====================================================');
+// Start HTTP and WebSocket server (unless in test mode)
+if (process.env.NODE_ENV !== 'test') {
+  server.listen(config.port, config.host, async () => {
+    console.log('====================================================');
+    console.log(`  🚀 NodeSSH Backend Server running on http://${config.host}:${config.port}`);
+    console.log(`  📁 SQLite Database: ${config.dbPath}`);
+    console.log(`  🔐 Key Vault & AES-256-GCM Encryption: Ready`);
+    console.log(`  🌐 SSH Tunnel Engine & SOCKS5 Proxy: Ready`);
+    console.log(`  ⚡ WebSocket Terminal (/ws/terminal) & SFTP: Ready`);
+    console.log('====================================================');
 
-  // Start any configured auto-start tunnels
-  await tunnelManager.initAutoStartTunnels();
-});
+    // Start any configured auto-start tunnels
+    await tunnelManager.initAutoStartTunnels();
+  });
+}
 
 // Graceful shutdown handling
 const gracefulShutdown = async () => {

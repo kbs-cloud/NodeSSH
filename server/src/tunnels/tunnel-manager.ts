@@ -8,6 +8,7 @@ import { createLocalForwardTunnel } from './local-forward';
 import { createRemoteForwardTunnel } from './remote-forward';
 import { createSocks5ProxyTunnel } from './socks5-server';
 import { createDirectTcpProxy } from './direct-proxy';
+import { createSSHBridgeTunnel } from './ssh-bridge';
 
 class TunnelManager {
   private activeTunnels: Map<string, ActiveTunnelInstance> = new Map();
@@ -30,7 +31,7 @@ class TunnelManager {
     }
 
     // Direct Node TCP Proxy Mode: No SSH connection needed
-    if (tunnel.tunnel_type === 'direct' || tunnel.tunnel_type === 'proxy' || tunnel.tunnel_type === 'tcp') {
+    if (tunnel.tunnel_type === 'direct' || (tunnel.tunnel_type as string) === 'proxy' || (tunnel.tunnel_type as string) === 'tcp') {
       const instance = createDirectTcpProxy(tunnel);
       this.activeTunnels.set(tunnel.id, instance);
       return instance.getMetrics();
@@ -52,6 +53,14 @@ class TunnelManager {
         return instance.getMetrics();
       }
       throw new Error(`No SSH server profile found to route tunnel '${tunnel.name}'. Please create a Server Profile first.`);
+    }
+
+    // Inbound SSH Bridge / Local Bastion Mode:
+    // Listens as an SSH server on local port and auto-authenticates to remote server using Vault keys
+    if (tunnel.tunnel_type === 'bridge' || (tunnel.tunnel_type as string) === 'inbound' || (tunnel.tunnel_type as string) === 'ssh-bridge') {
+      const instance = createSSHBridgeTunnel(tunnel, profile, userId);
+      this.activeTunnels.set(tunnel.id, instance);
+      return instance.getMetrics();
     }
 
     const sshConn = await createSSHConnection({

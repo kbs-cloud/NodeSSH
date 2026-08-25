@@ -8,7 +8,7 @@ import { AddTunnelModal } from './AddTunnelModal';
 export const TunnelDashboard: React.FC = () => {
   const { tunnels, setIsAddTunnelOpen, setEditingTunnel } = useApp();
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState<'all' | 'direct' | 'local' | 'remote' | 'socks5'>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'bridge' | 'direct' | 'local' | 'remote' | 'socks5'>('all');
 
   const activeTunnels = tunnels.filter(t => t.status === 'active');
   const totalClients = tunnels.reduce((sum, t) => sum + (t.status === 'active' ? t.activeClients : 0), 0);
@@ -35,10 +35,10 @@ export const TunnelDashboard: React.FC = () => {
         <div>
           <h1 className="text-xl font-bold text-white tracking-wide flex items-center gap-2">
             <Network className="w-6 h-6 text-cyan-400" />
-            Port Forwarding, TCP Relays & SSH Tunnels
+            Local SSH Bridges, TCP Relays & Tunnels
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Direct Node.js TCP relays, Local (-L), Remote (-R), and SOCKS5 (-D) proxies with optional LAN sharing
+            Inbound SSH Bridges (auto-authenticated with Vault keys), direct TCP relays, and encapsulated SSH tunnels
           </p>
         </div>
 
@@ -50,7 +50,7 @@ export const TunnelDashboard: React.FC = () => {
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--theme-primary,#00f0ff)] hover:opacity-90 text-black font-bold text-xs shadow-lg transition-all"
         >
           <Plus className="w-4 h-4" />
-          <span>New Forwarder / Tunnel</span>
+          <span>New Bridge / Tunnel</span>
         </button>
       </div>
 
@@ -61,7 +61,7 @@ export const TunnelDashboard: React.FC = () => {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="p-3.5 rounded-xl bg-[#0e1222] border border-[var(--theme-border,#1e2640)]">
           <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span>Active Tunnels / Relays</span>
+            <span>Active Bridges / Tunnels</span>
             <Activity className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="mt-2 flex items-baseline gap-2">
@@ -93,11 +93,11 @@ export const TunnelDashboard: React.FC = () => {
 
         <div className="p-3.5 rounded-xl bg-[#0e1222] border border-[var(--theme-border,#1e2640)]">
           <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span>Relay Engine</span>
+            <span>Relay Core</span>
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="mt-2">
-            <span className="text-xs font-semibold text-emerald-400">Node TCP + SSH2 Core</span>
+            <span className="text-xs font-semibold text-emerald-400">SSH2 Server & Client Core</span>
           </div>
         </div>
       </div>
@@ -108,7 +108,7 @@ export const TunnelDashboard: React.FC = () => {
           <Search className="w-4 h-4 text-slate-400" />
           <input
             type="text"
-            placeholder="Search forwarders by name, port, or host..."
+            placeholder="Search bridges & tunnels by name, port, or host..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="bg-transparent border-none outline-none text-white placeholder-slate-500 w-full font-mono text-xs"
@@ -118,7 +118,8 @@ export const TunnelDashboard: React.FC = () => {
         <div className="flex items-center bg-[#0e1222] border border-[var(--theme-border,#1e2640)] rounded-lg p-1 text-xs">
           {[
             { id: 'all', label: 'All' },
-            { id: 'direct', label: '⚡ Direct TCP Relay' },
+            { id: 'bridge', label: '🌉 SSH Bridge' },
+            { id: 'direct', label: '⚡ Direct TCP' },
             { id: 'local', label: '🔒 SSH Local (-L)' },
             { id: 'remote', label: '🔄 SSH Remote (-R)' },
             { id: 'socks5', label: '🌐 SOCKS5 (-D)' },

@@ -16,13 +16,14 @@ export const TunnelCard: React.FC<TunnelCardProps> = ({ tunnel }) => {
   const isActive = tunnel.status === 'active';
 
   const typeBadges = {
+    bridge: { label: 'Local SSH Bridge', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' },
     direct: { label: 'Node TCP Proxy', color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' },
-    local: { label: 'Local Forward (-L)', color: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/40' },
-    remote: { label: 'Remote Forward (-R)', color: 'bg-purple-500/20 text-purple-400 border-purple-500/40' },
+    local: { label: 'Local Forward (-L)', color: 'bg-purple-500/20 text-purple-400 border-purple-500/40' },
+    remote: { label: 'Remote Forward (-R)', color: 'bg-rose-500/20 text-rose-400 border-rose-500/40' },
     socks5: { label: 'Dynamic SOCKS5 (-D)', color: 'bg-amber-500/20 text-amber-400 border-amber-500/40' },
   };
 
-  const badge = typeBadges[tunnel.type] || typeBadges.local;
+  const badge = typeBadges[tunnel.type] || typeBadges.bridge;
 
   const handleToggle = async () => {
     setIsToggling(true);
@@ -44,6 +45,10 @@ export const TunnelCard: React.FC<TunnelCardProps> = ({ tunnel }) => {
   };
 
   const getConnectionString = () => {
+    if (tunnel.type === 'bridge') {
+      const host = tunnel.bindHost === '0.0.0.0' ? lanIp : 'localhost';
+      return `ssh -p ${tunnel.bindPort} ${host}`;
+    }
     if (tunnel.type === 'socks5') {
       return `socks5://${tunnel.bindHost === '0.0.0.0' ? lanIp : '127.0.0.1'}:${tunnel.bindPort}`;
     }

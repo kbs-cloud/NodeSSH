@@ -19,6 +19,17 @@ import { app, server } from '../index';
 
 describe('NodeSSH Backend Test Suite', () => {
   let testUserId: string = '';
+  let testServerPort = 3001;
+
+  before(async () => {
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', () => {
+        const addr = server.address() as any;
+        testServerPort = addr.port;
+        resolve();
+      });
+    });
+  });
 
   describe('1. Key Vault & Security', () => {
     it('should encrypt and decrypt private keys using AES-256-GCM', () => {
@@ -245,7 +256,7 @@ AWS-Database=#109#0%db.internal.net%22%dbadmin%%-1%-1%%%22%%0%0%0%%-1%-1
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const res = await fetch(`http://127.0.0.1:3001${endpoint}`, {
+      const res = await fetch(`http://127.0.0.1:${testServerPort}${endpoint}`, {
         method,
         headers,
         body: body ? JSON.stringify(body) : undefined,

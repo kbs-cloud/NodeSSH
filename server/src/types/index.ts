@@ -1,6 +1,6 @@
 export type AuthType = 'password' | 'key' | 'agent' | 'none';
 export type KeyType = 'ed25519' | 'rsa' | 'ecdsa';
-export type TunnelType = 'direct' | 'local' | 'remote' | 'socks5' | 'dynamic' | 'proxy' | 'tcp';
+export type TunnelType = 'bridge' | 'direct' | 'local' | 'remote' | 'socks5' | 'dynamic' | 'proxy' | 'tcp';
 export type TunnelStatus = 'active' | 'stopped' | 'error';
 
 export interface User {

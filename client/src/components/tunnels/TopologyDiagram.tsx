@@ -1,6 +1,6 @@
 import React from 'react';
 import { SSHTunnel } from '../../types';
-import { Laptop, Server, Globe, Database, ArrowRight, Zap } from 'lucide-react';
+import { Laptop, Server, Globe, Database, ArrowRight, Zap, Shield } from 'lucide-react';
 
 interface TopologyDiagramProps {
   tunnel: SSHTunnel;
@@ -11,6 +11,7 @@ export const TopologyDiagram: React.FC<TopologyDiagramProps> = ({ tunnel, lanIp 
   const isLanBind = tunnel.bindHost === '0.0.0.0';
   const isActive = tunnel.status === 'active';
   const isDirect = tunnel.type === 'direct';
+  const isBridge = tunnel.type === 'bridge';
 
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 B';
@@ -22,7 +23,51 @@ export const TopologyDiagram: React.FC<TopologyDiagramProps> = ({ tunnel, lanIp 
 
   return (
     <div className="p-3 bg-black/40 rounded-lg border border-white/5 font-mono text-[11px] select-none">
-      {isDirect ? (
+      {isBridge ? (
+        // Inbound SSH Bridge Topology
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {/* Node 1: Local Terminal */}
+          <div className="flex items-center gap-1.5 p-2 rounded bg-[#0e1222] border border-white/10 text-slate-300">
+            <Laptop className="w-4 h-4 text-cyan-400" />
+            <div>
+              <div className="font-semibold text-white">Local Terminal</div>
+              <div className="text-[10px] text-cyan-300 font-bold">
+                ssh -p {tunnel.bindPort} {isLanBind ? lanIp : 'localhost'}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 text-slate-500">
+            <ArrowRight className={`w-4 h-4 ${isActive ? 'text-cyan-400 animate-pulse' : ''}`} />
+          </div>
+
+          {/* Node 2: NodeSSH Inbound Bridge */}
+          <div className="flex items-center gap-1.5 p-2 rounded bg-[#0e1222] border border-cyan-500/40 text-cyan-300">
+            <Shield className="w-4 h-4 text-cyan-400" />
+            <div>
+              <div className="font-semibold text-white">NodeSSH Bridge</div>
+              <div className="text-[10px] text-slate-400">
+                Auto-Auth with Vault Keys
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 text-slate-500">
+            <ArrowRight className={`w-4 h-4 ${isActive ? 'text-purple-400 animate-pulse' : ''}`} />
+          </div>
+
+          {/* Node 3: Remote SSH Server */}
+          <div className="flex items-center gap-1.5 p-2 rounded bg-[#0e1222] border border-white/10 text-slate-300">
+            <Server className="w-4 h-4 text-purple-400" />
+            <div>
+              <div className="font-semibold text-white">Target SSH Server</div>
+              <div className="text-[10px] text-purple-300">
+                {tunnel.sshUser ? `${tunnel.sshUser}@` : ''}{tunnel.remoteHost || tunnel.sshHost}:{tunnel.remotePort || 22}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : isDirect ? (
         // Direct Node TCP Proxy Topology
         <div className="flex flex-wrap items-center justify-between gap-2">
           {/* Node 1: Client / App */}
