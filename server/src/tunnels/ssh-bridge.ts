@@ -1,20 +1,37 @@
+import fs from 'fs';
+import path from 'path';
 import crypto from 'crypto';
 import { Server as SSHServer } from 'ssh2';
 import { Tunnel, TunnelRuntimeMetrics, Profile } from '../types';
 import { createSSHConnection } from '../ssh/connection';
 import { ActiveTunnelInstance } from './types';
+import { config } from '../config';
 
-// Cache host key so clients don't see host key change warnings while server is running
-let cachedHostKey: string | null = null;
+// Persistent host key so clients don't see host key change warnings across restarts
 function getOrCreateHostKey(): string {
-  if (!cachedHostKey) {
-    cachedHostKey = crypto.generateKeyPairSync('rsa', {
-      modulusLength: 2048,
-      publicKeyEncoding: { type: 'pkcs1', format: 'pem' },
-      privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
-    }).privateKey;
-  }
-  return cachedHostKey;
+  const dataDir = path.dirname(config.dbPath);
+  const keyPath = path.join(dataDir, 'bridge_host_key.pem');
+
+  try {
+    if (fs.existsSync(keyPath)) {
+      return fs.readFileSync(keyPath, 'utf8');
+    }
+  } catch {}
+
+  const newKey = crypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: 'pkcs1', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+  }).privateKey;
+
+  try {
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    fs.writeFileSync(keyPath, newKey, 'utf8');
+  } catch {}
+
+  return newKey;
 }
 
 /**
