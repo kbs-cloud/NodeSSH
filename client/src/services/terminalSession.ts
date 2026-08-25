@@ -47,9 +47,12 @@ export class TerminalSession {
     }
 
     const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHost = window.location.host || 'localhost:3001';
-    const token = storage.getToken();
-    const wsUrl = `${wsProto}//${wsHost}/ws/terminal?tabId=${encodeURIComponent(this.tabId)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+    let wsHost = window.location.host;
+    if (window.location.port === '5173') {
+      wsHost = `${window.location.hostname || 'localhost'}:3001`;
+    }
+    const token = storage.getToken() || 'default-session-token';
+    const wsUrl = `${wsProto}//${wsHost}/ws/terminal?tabId=${encodeURIComponent(this.tabId)}&token=${encodeURIComponent(token)}`;
 
     try {
       this.ws = new WebSocket(wsUrl);
@@ -90,6 +93,13 @@ export class TerminalSession {
               } else if (msg.type === 'status') {
                 this.status = msg.status;
                 this.options.onStatusChange(msg.status, msg.message);
+                if (msg.message && msg.status === 'connecting') {
+                  this.options.onData(`\r\n\x1b[36mConnecting to ${this.profile?.username || 'remote'}@${this.profile?.host || 'server'}:${this.profile?.port || 22}...\x1b[0m\r\n`);
+                }
+              } else if (msg.type === 'error') {
+                this.options.onData(`\r\n\x1b[31;1m[NodeSSH Connection Error] ${msg.message}\x1b[0m\r\n`);
+                this.status = 'error';
+                this.options.onStatusChange('error', msg.message);
               } else if (msg.type === 'cwd') {
                 this.cwd = msg.path;
                 this.options.onCwdChange?.(msg.path);

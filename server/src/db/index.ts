@@ -132,6 +132,13 @@ function initSchema(db: DatabaseType): void {
     CREATE INDEX IF NOT EXISTS idx_known_hosts_user ON known_hosts(user_id);
     CREATE INDEX IF NOT EXISTS idx_users_sso ON users(sso_id);
   `);
+
+  try {
+    db.prepare(`
+      INSERT OR IGNORE INTO users (id, username, email, created_at, updated_at)
+      VALUES ('usr-default', 'admin', 'admin@nodessh.local', datetime('now'), datetime('now'))
+    `).run();
+  } catch {}
 }
 
 export function closeDb(): void {

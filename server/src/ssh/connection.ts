@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { Client, ConnectConfig } from 'ssh2';
 import { Profile, SSHKey } from '../types';
 import { getProfileById } from '../db/profiles';
@@ -67,6 +69,21 @@ export async function createSSHConnection(options: SSHConnectionOptions): Promis
     }
   }
 
+  if (!privateKey && !password) {
+    const homeDir = process.env.USERPROFILE || process.env.HOME || '';
+    const defaultEd = path.join(homeDir, '.ssh', 'id_ed25519');
+    const defaultRsa = path.join(homeDir, '.ssh', 'id_rsa');
+    if (fs.existsSync(defaultEd)) {
+      try { privateKey = fs.readFileSync(defaultEd, 'utf8'); } catch {}
+    } else if (fs.existsSync(defaultRsa)) {
+      try { privateKey = fs.readFileSync(defaultRsa, 'utf8'); } catch {}
+    }
+  }
+
+  if (privateKey && typeof privateKey === 'string' && !privateKey.includes('PRIVATE KEY') && fs.existsSync(privateKey)) {
+    try { privateKey = fs.readFileSync(privateKey, 'utf8'); } catch {}
+  }
+
   if (!host || !username) {
     throw new Error('Host and Username are required for SSH connection');
   }
@@ -103,7 +120,18 @@ export async function createSSHConnection(options: SSHConnectionOptions): Promis
         passphrase: jumpProfile.passphrase || undefined,
         keepaliveInterval: (jumpProfile.keepalive_interval ?? 15) * 1000,
         keepaliveCountMax: 3,
-        readyTimeout: 20000,
+        readyTimeout: 30000,
+        algorithms: {
+          serverHostKey: [
+            'ssh-ed25519',
+            'ecdsa-sha2-nistp256',
+            'ecdsa-sha2-nistp384',
+            'ecdsa-sha2-nistp521',
+            'rsa-sha2-512',
+            'rsa-sha2-256',
+            'ssh-rsa',
+          ],
+        },
       });
     });
 
@@ -143,7 +171,18 @@ export async function createSSHConnection(options: SSHConnectionOptions): Promis
       sock: socketStream,
       keepaliveInterval: keepalive * 1000,
       keepaliveCountMax: 3,
-      readyTimeout: 20000,
+      readyTimeout: 30000,
+      algorithms: {
+        serverHostKey: [
+          'ssh-ed25519',
+          'ecdsa-sha2-nistp256',
+          'ecdsa-sha2-nistp384',
+          'ecdsa-sha2-nistp521',
+          'rsa-sha2-512',
+          'rsa-sha2-256',
+          'ssh-rsa',
+        ],
+      },
     };
 
     try {
