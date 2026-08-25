@@ -318,16 +318,34 @@ class ApiClient {
 
   async saveTunnel(tunnel: SSHTunnel): Promise<SSHTunnel> {
     try {
-      const isNew = !tunnel.id || tunnel.id.startsWith('temp-');
+      const isNew = !tunnel.id || tunnel.id.startsWith('temp-') || tunnel.id.startsWith('tun-');
       const url = isNew ? `${API_BASE}/tunnels` : `${API_BASE}/tunnels/${tunnel.id}`;
       const method = isNew ? 'POST' : 'PUT';
-      const res = await fetch(url, {
+      let res = await fetch(url, {
         method,
         headers: this.getHeaders(),
         body: JSON.stringify(tunnel),
       });
+
+      if (!res.ok && res.status === 404 && !isNew) {
+        res = await fetch(`${API_BASE}/tunnels`, {
+          method: 'POST',
+          headers: this.getHeaders(),
+          body: JSON.stringify(tunnel),
+        });
+      }
+
       if (res.ok) {
-        return await res.json();
+        const saved = await res.json();
+        const currentTunnels = storage.getTunnels();
+        const idx = currentTunnels.findIndex(t => t.id === saved.id || (tunnel.id && t.id === tunnel.id));
+        if (idx >= 0) {
+          currentTunnels[idx] = saved;
+        } else {
+          currentTunnels.unshift(saved);
+        }
+        storage.saveTunnels(currentTunnels);
+        return saved;
       }
     } catch {}
 
@@ -337,23 +355,36 @@ class ApiClient {
       tunnels[existingIdx] = tunnel;
     } else {
       if (!tunnel.id) tunnel.id = 'tun-' + Date.now();
-      tunnels.push(tunnel);
+      tunnels.unshift(tunnel);
     }
     storage.saveTunnels(tunnels);
     return tunnel;
   }
 
   async toggleTunnel(id: string, start: boolean): Promise<SSHTunnel> {
+    const action = start ? 'start' : 'stop';
     try {
-      const action = start ? 'start' : 'stop';
       const res = await fetch(`${API_BASE}/tunnels/${id}/${action}`, {
         method: 'POST',
         headers: this.getHeaders(),
       });
       if (res.ok) {
-        return await res.json();
+        const data = await res.json();
+        const tunnels = storage.getTunnels();
+        const idx = tunnels.findIndex(t => t.id === id);
+        if (idx >= 0) {
+          tunnels[idx] = data;
+          storage.saveTunnels(tunnels);
+        }
+        return data;
       }
-    } catch {}
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Failed to ${action} tunnel on server`);
+    } catch (err: any) {
+      if (err.message && !err.message.includes('fetch')) {
+        throw err;
+      }
+    }
 
     // Offline simulation
     const tunnels = storage.getTunnels();

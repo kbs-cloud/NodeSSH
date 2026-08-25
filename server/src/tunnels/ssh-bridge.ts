@@ -191,10 +191,10 @@ export function createSSHBridgeTunnel(
 
   server.on('error', (err: any) => {
     status = 'error';
-    errorMessage = `SSH Bridge error on ${bindHost}:${bindPort}: ${err.message}`;
+    errorMessage = `SSH Bridge error on port ${bindPort}: ${err.message}`;
   });
 
-  server.listen(bindPort, bindHost, () => {
+  server.listen(bindPort, '0.0.0.0', () => {
     status = 'active';
     errorMessage = null;
   });

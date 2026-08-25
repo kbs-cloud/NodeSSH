@@ -61,7 +61,7 @@ export const AddTunnelModal: React.FC = () => {
     }
 
     const tunnelData: SSHTunnel = {
-      id: editingTunnel ? editingTunnel.id : 'tun-' + Date.now(),
+      id: editingTunnel ? editingTunnel.id : '',
       name: name.trim() || defaultName,
       type,
       status: editingTunnel ? editingTunnel.status : 'stopped',

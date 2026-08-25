@@ -160,10 +160,16 @@ router.post('/:id/start', async (req: AuthenticatedRequest, res: Response) => {
     const tunnelId = req.params.id;
 
     const metrics = await tunnelManager.startTunnel(userId, tunnelId);
-    res.json({
-      message: 'Tunnel started successfully',
+    const tunnel = getTunnelById(userId, tunnelId);
+    if (!tunnel) {
+      res.status(404).json({ error: 'Tunnel not found' });
+      return;
+    }
+
+    res.json(toTunnelDTO({
+      ...tunnel,
       metrics,
-    });
+    }));
   } catch (err: any) {
     res.status(500).json({ error: `Failed to start tunnel: ${err.message}` });
   }
@@ -177,11 +183,16 @@ router.post('/:id/stop', async (req: AuthenticatedRequest, res: Response) => {
 
     await tunnelManager.stopTunnel(userId, tunnelId);
     const metrics = tunnelManager.getTunnelMetrics(userId, tunnelId);
+    const tunnel = getTunnelById(userId, tunnelId);
+    if (!tunnel) {
+      res.status(404).json({ error: 'Tunnel not found' });
+      return;
+    }
 
-    res.json({
-      message: 'Tunnel stopped successfully',
+    res.json(toTunnelDTO({
+      ...tunnel,
       metrics,
-    });
+    }));
   } catch (err: any) {
     res.status(500).json({ error: `Failed to stop tunnel: ${err.message}` });
   }
