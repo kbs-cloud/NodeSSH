@@ -4,6 +4,7 @@ import { FileCode, Save, Search, WrapText, Check, AlertCircle } from 'lucide-rea
 import { SFTPFileItem } from '../../types';
 import { api } from '../../services/api';
 import { useApp } from '../../context/AppContext';
+import { useTerminal } from '../../context/TerminalContext';
 
 interface CodeEditorModalProps {
   file: SFTPFileItem | null;
@@ -11,7 +12,11 @@ interface CodeEditorModalProps {
 }
 
 export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({ file, onClose }) => {
-  const { showToast } = useApp();
+  const { showToast, profiles } = useApp();
+  const { activeTab } = useTerminal();
+
+  const profileId = activeTab?.profileId || activeTab?.profile?.id || (profiles.length > 0 ? profiles[0].id : undefined);
+
   const [content, setContent] = useState<string>('');
   const [initialContent, setInitialContent] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -25,7 +30,7 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({ file, onClose 
   useEffect(() => {
     if (!file) return;
     setIsLoading(true);
-    api.readSftpFile(file.path)
+    api.readSftpFile(file.path, profileId)
       .then(data => {
         setContent(data);
         setInitialContent(data);
@@ -35,13 +40,13 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({ file, onClose 
         setContent('# Error loading remote file');
         setIsLoading(false);
       });
-  }, [file]);
+  }, [file, profileId]);
 
   const handleSave = async () => {
     if (!file) return;
     setIsSaving(true);
     try {
-      await api.writeSftpFile(file.path, content);
+      await api.writeSftpFile(file.path, content, profileId);
       setInitialContent(content);
       showToast(`Saved ${file.name} to server`, 'success');
     } catch {

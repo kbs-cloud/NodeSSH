@@ -4,6 +4,7 @@ import { Shield, Check } from 'lucide-react';
 import { SFTPFileItem } from '../../types';
 import { api } from '../../services/api';
 import { useApp } from '../../context/AppContext';
+import { useTerminal } from '../../context/TerminalContext';
 
 interface PermissionsModalProps {
   file: SFTPFileItem | null;
@@ -12,7 +13,10 @@ interface PermissionsModalProps {
 }
 
 export const PermissionsModal: React.FC<PermissionsModalProps> = ({ file, onClose, onSuccess }) => {
-  const { showToast } = useApp();
+  const { showToast, profiles } = useApp();
+  const { activeTab } = useTerminal();
+
+  const profileId = activeTab?.profileId || activeTab?.profile?.id || (profiles.length > 0 ? profiles[0].id : undefined);
 
   // Permissions state
   const [ownerRead, setOwnerRead] = useState(true);
@@ -64,7 +68,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({ file, onClos
   const handleApply = async () => {
     setIsSaving(true);
     try {
-      await api.chmodSftpFile(file.path, octalString);
+      await api.chmodSftpFile(file.path, octalString, profileId);
       showToast(`Permissions updated to ${octalString} for ${file.name}`, 'success');
       onSuccess?.();
       onClose();
