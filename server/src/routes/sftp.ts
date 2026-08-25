@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import multer from 'multer';
 import { requireAuth, AuthenticatedRequest } from '../auth/middleware';
+import { getProfilesByUserId } from '../db/profiles';
 import {
   openSFTPSession,
   sftpList,
@@ -19,18 +20,20 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100
 
 router.use(requireAuth);
 
+function resolveProfileId(userId: string, requestedId?: string): string {
+  if (requestedId && requestedId.trim()) return requestedId.trim();
+  const profiles = getProfilesByUserId(userId);
+  if (profiles.length > 0) return profiles[0].id;
+  throw new Error('No SSH profile available for SFTP session. Please configure a Server Profile first.');
+}
+
 // List directory contents
 router.get('/list', async (req: AuthenticatedRequest, res: Response) => {
   let session;
   try {
     const userId = req.user!.userId;
-    const profileId = req.query.profileId as string;
+    const profileId = resolveProfileId(userId, req.query.profileId as string);
     const remotePath = (req.query.path as string) || '/';
-
-    if (!profileId) {
-      res.status(400).json({ error: 'profileId is required' });
-      return;
-    }
 
     session = await openSFTPSession({ userId, profileId });
     const list = await sftpList(session.sftp, remotePath);
@@ -50,11 +53,11 @@ router.get('/stat', async (req: AuthenticatedRequest, res: Response) => {
   let session;
   try {
     const userId = req.user!.userId;
-    const profileId = req.query.profileId as string;
+    const profileId = resolveProfileId(userId, req.query.profileId as string);
     const remotePath = req.query.path as string;
 
-    if (!profileId || !remotePath) {
-      res.status(400).json({ error: 'profileId and path are required' });
+    if (!remotePath) {
+      res.status(400).json({ error: 'path is required' });
       return;
     }
 
@@ -73,11 +76,11 @@ router.get('/read', async (req: AuthenticatedRequest, res: Response) => {
   let session;
   try {
     const userId = req.user!.userId;
-    const profileId = req.query.profileId as string;
+    const profileId = resolveProfileId(userId, req.query.profileId as string);
     const remotePath = req.query.path as string;
 
-    if (!profileId || !remotePath) {
-      res.status(400).json({ error: 'profileId and path are required' });
+    if (!remotePath) {
+      res.status(400).json({ error: 'path is required' });
       return;
     }
 
@@ -99,10 +102,11 @@ router.post('/write', async (req: AuthenticatedRequest, res: Response) => {
   let session;
   try {
     const userId = req.user!.userId;
-    const { profileId, path: remotePath, content } = req.body;
+    const profileId = resolveProfileId(userId, req.body.profileId);
+    const { path: remotePath, content } = req.body;
 
-    if (!profileId || !remotePath || content === undefined) {
-      res.status(400).json({ error: 'profileId, path, and content are required' });
+    if (!remotePath || content === undefined) {
+      res.status(400).json({ error: 'path and content are required' });
       return;
     }
 
@@ -121,10 +125,11 @@ router.post('/mkdir', async (req: AuthenticatedRequest, res: Response) => {
   let session;
   try {
     const userId = req.user!.userId;
-    const { profileId, path: remotePath, recursive } = req.body;
+    const profileId = resolveProfileId(userId, req.body.profileId);
+    const { path: remotePath, recursive } = req.body;
 
-    if (!profileId || !remotePath) {
-      res.status(400).json({ error: 'profileId and path are required' });
+    if (!remotePath) {
+      res.status(400).json({ error: 'path is required' });
       return;
     }
 
@@ -143,10 +148,11 @@ router.post('/delete', async (req: AuthenticatedRequest, res: Response) => {
   let session;
   try {
     const userId = req.user!.userId;
-    const { profileId, path: remotePath, isDirectory } = req.body;
+    const profileId = resolveProfileId(userId, req.body.profileId);
+    const { path: remotePath, isDirectory } = req.body;
 
-    if (!profileId || !remotePath) {
-      res.status(400).json({ error: 'profileId and path are required' });
+    if (!remotePath) {
+      res.status(400).json({ error: 'path is required' });
       return;
     }
 
@@ -165,10 +171,11 @@ router.post('/rename', async (req: AuthenticatedRequest, res: Response) => {
   let session;
   try {
     const userId = req.user!.userId;
-    const { profileId, oldPath, newPath } = req.body;
+    const profileId = resolveProfileId(userId, req.body.profileId);
+    const { oldPath, newPath } = req.body;
 
-    if (!profileId || !oldPath || !newPath) {
-      res.status(400).json({ error: 'profileId, oldPath, and newPath are required' });
+    if (!oldPath || !newPath) {
+      res.status(400).json({ error: 'oldPath and newPath are required' });
       return;
     }
 
@@ -187,10 +194,11 @@ router.post('/chmod', async (req: AuthenticatedRequest, res: Response) => {
   let session;
   try {
     const userId = req.user!.userId;
-    const { profileId, path: remotePath, mode } = req.body;
+    const profileId = resolveProfileId(userId, req.body.profileId);
+    const { path: remotePath, mode } = req.body;
 
-    if (!profileId || !remotePath || mode === undefined) {
-      res.status(400).json({ error: 'profileId, path, and mode are required' });
+    if (!remotePath || mode === undefined) {
+      res.status(400).json({ error: 'path and mode are required' });
       return;
     }
 
@@ -209,12 +217,12 @@ router.post('/upload', upload.single('file'), async (req: AuthenticatedRequest, 
   let session;
   try {
     const userId = req.user!.userId;
-    const profileId = req.body.profileId;
+    const profileId = resolveProfileId(userId, req.body.profileId);
     const remoteDir = req.body.remoteDir || '/';
     const file = req.file;
 
-    if (!profileId || !file) {
-      res.status(400).json({ error: 'profileId and file are required' });
+    if (!file) {
+      res.status(400).json({ error: 'file is required' });
       return;
     }
 
@@ -242,11 +250,11 @@ router.get('/download', async (req: AuthenticatedRequest, res: Response) => {
   let session: any;
   try {
     const userId = req.user!.userId;
-    const profileId = req.query.profileId as string;
+    const profileId = resolveProfileId(userId, req.query.profileId as string);
     const remotePath = req.query.path as string;
 
-    if (!profileId || !remotePath) {
-      res.status(400).json({ error: 'profileId and path are required' });
+    if (!remotePath) {
+      res.status(400).json({ error: 'path is required' });
       return;
     }
 

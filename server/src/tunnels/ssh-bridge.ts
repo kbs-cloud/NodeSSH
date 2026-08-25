@@ -193,6 +193,64 @@ export function createSSHBridgeTunnel(
               localStream.end();
             }
           });
+
+          // SFTP Subsystem bridging (e.g. sftp -P 9022 localhost or FileZilla / WinSCP)
+          const handleSftpSubsystem = async (acceptSftp: () => any) => {
+            const localStream = acceptSftp();
+            try {
+              const { client: remoteClient } = await createSSHConnection({
+                userId,
+                profileId: profile.id,
+              });
+
+              remoteClient.subsys('sftp', (err, remoteStream) => {
+                if (err) {
+                  try {
+                    remoteClient.end();
+                  } catch {}
+                  localStream.exit(1);
+                  localStream.end();
+                  return;
+                }
+
+                localStream.on('data', (chunk: Buffer) => {
+                  bytesSent += chunk.length;
+                });
+                remoteStream.on('data', (chunk: Buffer) => {
+                  bytesReceived += chunk.length;
+                });
+
+                localStream.pipe(remoteStream);
+                remoteStream.pipe(localStream);
+
+                const cleanup = () => {
+                  try {
+                    remoteClient.end();
+                  } catch {}
+                  try {
+                    localStream.end();
+                  } catch {}
+                };
+
+                remoteStream.on('close', cleanup);
+                remoteStream.on('error', cleanup);
+                localStream.on('close', cleanup);
+                localStream.on('error', cleanup);
+              });
+            } catch {
+              try {
+                localStream.exit(1);
+                localStream.end();
+              } catch {}
+            }
+          };
+
+          session.once('sftp', (accept) => handleSftpSubsystem(accept));
+          session.once('subsystem', (accept, _reject, info) => {
+            if (info.name === 'sftp') {
+              handleSftpSubsystem(accept);
+            }
+          });
         });
       });
 

@@ -468,64 +468,115 @@ class ApiClient {
   }
 
   // --- SFTP ---
-  async listSftpFiles(path: string, _profileId?: string): Promise<SFTPFileItem[]> {
+  async listSftpFiles(path: string, profileId?: string): Promise<SFTPFileItem[]> {
     try {
-      const res = await fetch(`${API_BASE}/sftp/list?path=${encodeURIComponent(path)}`, {
+      const q = new URLSearchParams({ path });
+      if (profileId) q.set('profileId', profileId);
+      const res = await fetch(`${API_BASE}/sftp/list?${q.toString()}`, {
         headers: this.getHeaders(),
       });
       if (res.ok) {
-        return await res.json();
+        const data = await res.json();
+        const items = Array.isArray(data) ? data : data.items || [];
+        return items.map((item: any) => ({
+          name: item.filename || item.name,
+          path: `${path.replace(/\/$/, '')}/${item.filename || item.name}`,
+          type: item.isDirectory ? 'directory' : item.isSymbolicLink ? 'symlink' : 'file',
+          size: item.size || 0,
+          permissions: item.permissions || 'rw-r--r--',
+          modified: item.modifyTime ? new Date(item.modifyTime).toISOString() : new Date().toISOString(),
+          owner: item.uid ? String(item.uid) : 'user',
+        }));
       }
     } catch {}
-    // Offline simulation: filter or return mock files
+    // Offline fallback
     return INITIAL_MOCK_FILES.map(f => ({
       ...f,
       path: f.name === '..' ? '/home' : `${path.replace(/\/$/, '')}/${f.name}`,
     }));
   }
 
-  async readSftpFile(filePath: string, _profileId?: string): Promise<string> {
+  async readSftpFile(filePath: string, profileId?: string): Promise<string> {
     try {
-      const res = await fetch(`${API_BASE}/sftp/read?path=${encodeURIComponent(filePath)}`, {
+      const q = new URLSearchParams({ path: filePath });
+      if (profileId) q.set('profileId', profileId);
+      const res = await fetch(`${API_BASE}/sftp/read?${q.toString()}`, {
         headers: this.getHeaders(),
       });
       if (res.ok) {
-        return await res.text();
+        const text = await res.text();
+        try {
+          const json = JSON.parse(text);
+          return json.content !== undefined ? json.content : text;
+        } catch {
+          return text;
+        }
       }
     } catch {}
     return MOCK_FILE_CONTENTS[filePath] || `# Remote file: ${filePath}\n# Opened in NodeSSH In-Browser Editor\n\n`;
   }
 
-  async writeSftpFile(filePath: string, content: string, _profileId?: string): Promise<void> {
+  async writeSftpFile(filePath: string, content: string, profileId?: string): Promise<void> {
     try {
       const res = await fetch(`${API_BASE}/sftp/write`, {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify({ path: filePath, content }),
+        body: JSON.stringify({ path: filePath, content, profileId }),
       });
       if (res.ok) return;
     } catch {}
     MOCK_FILE_CONTENTS[filePath] = content;
   }
 
-  async chmodSftpFile(filePath: string, mode: string, _profileId?: string): Promise<void> {
+  async createSftpFolder(dirPath: string, profileId?: string): Promise<void> {
     try {
-      await fetch(`${API_BASE}/sftp/chmod`, {
+      await fetch(`${API_BASE}/sftp/mkdir`, {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify({ path: filePath, mode }),
+        body: JSON.stringify({ path: dirPath, profileId }),
       });
     } catch {}
   }
 
-  async deleteSftpFile(filePath: string, _profileId?: string): Promise<void> {
+  async chmodSftpFile(filePath: string, mode: string | number, profileId?: string): Promise<void> {
+    try {
+      await fetch(`${API_BASE}/sftp/chmod`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify({ path: filePath, mode, profileId }),
+      });
+    } catch {}
+  }
+
+  async deleteSftpFile(filePath: string, isDirectory: boolean = false, profileId?: string): Promise<void> {
     try {
       await fetch(`${API_BASE}/sftp/delete`, {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify({ path: filePath }),
+        body: JSON.stringify({ path: filePath, isDirectory, profileId }),
       });
     } catch {}
+  }
+
+  async uploadSftpFile(file: File, remoteDir: string, profileId?: string): Promise<void> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('remoteDir', remoteDir);
+    if (profileId) formData.append('profileId', profileId);
+
+    const headers: Record<string, string> = {};
+    const token = storage.getToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE}/sftp/upload`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to upload file');
+    }
   }
 }
 
