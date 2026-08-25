@@ -7,6 +7,8 @@ import { ArrowLeftRight, Terminal, Plus, Server, Key, Network } from 'lucide-rea
 
 export const SplitTerminalContainer: React.FC = () => {
   const {
+    tabs,
+    activeTabId,
     activeTab,
     secondaryTab,
     splitState,
@@ -15,9 +17,9 @@ export const SplitTerminalContainer: React.FC = () => {
     addTab,
   } = useTerminal();
 
-  const { setActiveView, setIsProfileModalOpen } = useApp();
+  const { setActiveView, setIsProfileModalOpen, profiles } = useApp();
 
-  if (!activeTab) {
+  if (tabs.length === 0 || !activeTab) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center bg-[var(--theme-bg-dark,#070913)] text-slate-400 p-8 select-none">
         <div className="max-w-md w-full text-center space-y-6">
@@ -33,13 +35,23 @@ export const SplitTerminalContainer: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-            <button
-              onClick={() => addTab({ title: 'Local Shell' })}
-              className="flex items-center justify-center gap-2 p-3 rounded-xl bg-[#0e1222] hover:bg-[#151b30] border border-[var(--theme-border,#1e2640)] hover:border-cyan-500/50 text-white text-xs font-semibold shadow-md transition-all group"
-            >
-              <Plus className="w-4 h-4 text-cyan-400 group-hover:scale-110 transition-transform" />
-              <span>New Local Shell</span>
-            </button>
+            {profiles.length > 0 ? (
+              <button
+                onClick={() => addTab({ profile: profiles[0] })}
+                className="flex items-center justify-center gap-2 p-3 rounded-xl bg-[#0e1222] hover:bg-[#151b30] border border-cyan-500/40 text-cyan-300 text-xs font-semibold shadow-md transition-all group"
+              >
+                <Server className="w-4 h-4 text-cyan-400 group-hover:scale-110 transition-transform" />
+                <span className="truncate">Connect {profiles[0].name}</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => addTab({ title: 'Local Shell' })}
+                className="flex items-center justify-center gap-2 p-3 rounded-xl bg-[#0e1222] hover:bg-[#151b30] border border-[var(--theme-border,#1e2640)] hover:border-cyan-500/50 text-white text-xs font-semibold shadow-md transition-all group"
+              >
+                <Plus className="w-4 h-4 text-cyan-400 group-hover:scale-110 transition-transform" />
+                <span>New Local Shell</span>
+              </button>
+            )}
 
             <button
               onClick={() => {
@@ -81,9 +93,16 @@ export const SplitTerminalContainer: React.FC = () => {
       {/* Main Terminal Viewport */}
       <div className="flex-1 relative w-full h-full overflow-hidden bg-[var(--theme-bg-dark,#070913)]">
         {splitState.mode === 'single' || !secondaryTab ? (
-          // Single Pane
-          <div className="w-full h-full">
-            <XtermView key={activeTab.id} tab={activeTab} isFocused={true} />
+          // Single Pane Mode: keep all open tabs mounted so sessions never disconnect
+          <div className="w-full h-full relative">
+            {tabs.map(tab => (
+              <div
+                key={tab.id}
+                className={`w-full h-full ${tab.id === activeTabId ? 'block' : 'hidden'}`}
+              >
+                <XtermView tab={tab} isFocused={tab.id === activeTabId} />
+              </div>
+            ))}
           </div>
         ) : splitState.mode === 'vertical' ? (
           // Vertical Split (Left / Right)
@@ -97,7 +116,7 @@ export const SplitTerminalContainer: React.FC = () => {
               <div className="absolute top-1 left-2 z-20 px-2 py-0.5 rounded text-[10px] bg-black/60 text-cyan-400 font-mono border border-cyan-500/30">
                 {activeTab.title}
               </div>
-              <XtermView key={activeTab.id} tab={activeTab} isFocused={true} />
+              <XtermView tab={activeTab} isFocused={activeTab.id === activeTabId} />
             </div>
 
             {/* Split controls */}
@@ -117,7 +136,16 @@ export const SplitTerminalContainer: React.FC = () => {
               <div className="absolute top-1 left-2 z-20 px-2 py-0.5 rounded text-[10px] bg-black/60 text-purple-400 font-mono border border-purple-500/30">
                 {secondaryTab.title}
               </div>
-              <XtermView key={secondaryTab.id} tab={secondaryTab} isFocused={false} />
+              <XtermView tab={secondaryTab} isFocused={secondaryTab.id === activeTabId} />
+            </div>
+
+            {/* Hidden background tabs */}
+            <div className="hidden">
+              {tabs
+                .filter(t => t.id !== activeTab.id && t.id !== secondaryTab.id)
+                .map(tab => (
+                  <XtermView key={tab.id} tab={tab} isFocused={false} />
+                ))}
             </div>
           </div>
         ) : (
@@ -132,7 +160,7 @@ export const SplitTerminalContainer: React.FC = () => {
               <div className="absolute top-1 left-2 z-20 px-2 py-0.5 rounded text-[10px] bg-black/60 text-cyan-400 font-mono border border-cyan-500/30">
                 {activeTab.title}
               </div>
-              <XtermView key={activeTab.id} tab={activeTab} isFocused={true} />
+              <XtermView tab={activeTab} isFocused={activeTab.id === activeTabId} />
             </div>
 
             {/* Split controls */}
@@ -152,7 +180,16 @@ export const SplitTerminalContainer: React.FC = () => {
               <div className="absolute top-1 left-2 z-20 px-2 py-0.5 rounded text-[10px] bg-black/60 text-purple-400 font-mono border border-purple-500/30">
                 {secondaryTab.title}
               </div>
-              <XtermView key={secondaryTab.id} tab={secondaryTab} isFocused={false} />
+              <XtermView tab={secondaryTab} isFocused={secondaryTab.id === activeTabId} />
+            </div>
+
+            {/* Hidden background tabs */}
+            <div className="hidden">
+              {tabs
+                .filter(t => t.id !== activeTab.id && t.id !== secondaryTab.id)
+                .map(tab => (
+                  <XtermView key={tab.id} tab={tab} isFocused={false} />
+                ))}
             </div>
           </div>
         )}

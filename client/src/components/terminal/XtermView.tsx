@@ -170,11 +170,16 @@ export const XtermView: React.FC<XtermViewProps> = ({ tab, isFocused = true }) =
     }
   }, [settings]);
 
-  // Focus when tab becomes active
+  // Focus and re-fit when tab becomes active
   useEffect(() => {
     if (isFocused && terminalRef.current) {
-      terminalRef.current.focus();
-      fitAddonRef.current?.fit();
+      const timer = setTimeout(() => {
+        try {
+          fitAddonRef.current?.fit();
+          terminalRef.current?.focus();
+        } catch {}
+      }, 50);
+      return () => clearTimeout(timer);
     }
   }, [isFocused]);
 

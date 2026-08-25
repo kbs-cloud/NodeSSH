@@ -114,32 +114,35 @@ export const AppLayout: React.FC = () => {
 
         {/* Dynamic Viewport Area */}
         <main className="flex-1 flex flex-col overflow-hidden relative">
-          {activeView === 'terminals' && (
-            <div className="flex-1 flex flex-col h-full w-full overflow-hidden">
-              {/* Tab strip */}
-              <TerminalTabsHeader />
+          {/* Persistent Terminal Container */}
+          <div
+            className={`flex-1 flex flex-col h-full w-full overflow-hidden ${
+              activeView === 'terminals' ? 'flex' : 'hidden'
+            }`}
+          >
+            {/* Tab strip */}
+            <TerminalTabsHeader />
 
-              {/* Terminal Viewport with Dockable SFTP */}
-              <div className="flex-1 flex overflow-hidden relative">
-                {/* Left Docked SFTP */}
-                {isSftpDocked && sftpDockPosition === 'left' && (
-                  <div className="w-80 h-full flex-shrink-0 z-10">
-                    <SftpExplorer onClose={toggleSftpDock} />
-                  </div>
-                )}
+            {/* Terminal Viewport with Dockable SFTP */}
+            <div className="flex-1 flex overflow-hidden relative">
+              {/* Left Docked SFTP */}
+              {isSftpDocked && sftpDockPosition === 'left' && (
+                <div className="w-80 h-full flex-shrink-0 z-10">
+                  <SftpExplorer onClose={toggleSftpDock} />
+                </div>
+              )}
 
-                {/* Main Split Terminal View */}
-                <SplitTerminalContainer />
+              {/* Main Split Terminal View */}
+              <SplitTerminalContainer />
 
-                {/* Right Docked SFTP */}
-                {isSftpDocked && sftpDockPosition === 'right' && (
-                  <div className="w-80 h-full flex-shrink-0 z-10">
-                    <SftpExplorer onClose={toggleSftpDock} />
-                  </div>
-                )}
-              </div>
+              {/* Right Docked SFTP */}
+              {isSftpDocked && sftpDockPosition === 'right' && (
+                <div className="w-80 h-full flex-shrink-0 z-10">
+                  <SftpExplorer onClose={toggleSftpDock} />
+                </div>
+              )}
             </div>
-          )}
+          </div>
 
           {activeView === 'profiles' && <ProfileManager />}
           {activeView === 'tunnels' && <TunnelDashboard />}
