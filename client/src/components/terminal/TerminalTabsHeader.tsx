@@ -34,7 +34,7 @@ export const TerminalTabsHeader: React.FC = () => {
     toggleSftpDock,
   } = useTerminal();
 
-  const { profiles } = useApp();
+  const { profiles, setIsProfileModalOpen } = useApp();
 
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState<string>('');
@@ -60,7 +60,7 @@ export const TerminalTabsHeader: React.FC = () => {
   });
 
   return (
-    <div className="flex items-center justify-between bg-[var(--theme-bg-surface,#0e1222)] border-b border-[var(--theme-border,#1e2640)] px-2 select-none h-10">
+    <div className="flex items-center justify-between bg-[var(--theme-bg-surface,#0e1222)] border-b border-[var(--theme-border,#1e2640)] px-2 select-none h-10 relative">
       {/* Tabs strip */}
       <div className="flex items-center gap-1 overflow-x-auto flex-1 h-full py-1 pr-2 no-scrollbar">
         {sortedTabs.map(tab => {
@@ -104,33 +104,33 @@ export const TerminalTabsHeader: React.FC = () => {
                     if (e.key === 'Enter') commitRename(tab.id);
                     if (e.key === 'Escape') setEditingTabId(null);
                   }}
-                  className="bg-black/50 text-white px-1 py-0.5 rounded border border-[var(--theme-primary,#00f0ff)] outline-none text-xs w-28"
                   onClick={e => e.stopPropagation()}
+                  className="bg-black/40 text-white px-1 py-0.5 rounded outline-none border border-cyan-500 text-xs w-28"
                 />
               ) : (
                 <span
-                  onDoubleClick={() => startRename(tab.id, tab.title)}
-                  className="max-w-[140px] truncate"
+                  onDoubleClick={e => {
+                    e.stopPropagation();
+                    startRename(tab.id, tab.title);
+                  }}
+                  className="truncate max-w-[140px]"
                   title={`${tab.title} (Double-click to rename)`}
                 >
                   {tab.title}
                 </span>
               )}
 
-              {/* Pin indicator */}
-              {tab.isPinned && (
-                <Pin className="w-3 h-3 text-[var(--theme-primary,#00f0ff)] opacity-80" />
-              )}
-
-              {/* Hover actions */}
+              {/* Action Buttons: Pin, Duplicate, Close */}
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-1">
-                {/* Pin toggle */}
+                {/* Pin tab */}
                 <button
                   onClick={e => {
                     e.stopPropagation();
                     pinTab(tab.id);
                   }}
-                  className="p-0.5 rounded hover:text-white hover:bg-white/10"
+                  className={`p-0.5 rounded hover:text-white ${
+                    tab.isPinned ? 'text-amber-400' : 'text-slate-400 hover:bg-white/10'
+                  }`}
                   title={tab.isPinned ? 'Unpin tab' : 'Pin tab'}
                 >
                   {tab.isPinned ? <PinOff className="w-3 h-3" /> : <Pin className="w-3 h-3" />}
@@ -163,59 +163,118 @@ export const TerminalTabsHeader: React.FC = () => {
             </div>
           );
         })}
+      </div>
 
-        {/* Add Tab Button & Dropdown */}
-        <div className="relative">
-          <button
-            onClick={() => setIsAddMenuOpen(!isAddMenuOpen)}
-            className="flex items-center gap-1 p-1.5 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-            title="New Terminal Tab"
-          >
-            <Plus className="w-4 h-4" />
-            <ChevronDown className="w-3 h-3 opacity-60" />
-          </button>
+      {/* Add Tab Button & Dropdown (Positioned outside overflow container) */}
+      <div className="relative flex items-center bg-[#070913]/60 rounded border border-white/10 mx-1.5 my-1 shrink-0">
+        <button
+          onClick={() => {
+            if (activeTabId) {
+              duplicateTab(activeTabId);
+            } else if (profiles.length > 0) {
+              addTab({ profile: profiles[0] });
+            } else {
+              addTab();
+            }
+          }}
+          className="flex items-center p-1.5 hover:bg-white/10 text-slate-300 hover:text-cyan-400 transition-colors"
+          title={activeTabId ? "Duplicate Current Session (+)" : "New Terminal Tab (+)"}
+        >
+          <Plus className="w-4 h-4" />
+        </button>
 
-          {isAddMenuOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setIsAddMenuOpen(false)} />
-              <div className="absolute top-8 left-0 z-50 w-56 p-1 bg-[var(--theme-bg-elevated,#151b30)] border border-[var(--theme-border,#1e2640)] rounded-lg shadow-2xl text-xs">
+        <button
+          onClick={() => setIsAddMenuOpen(!isAddMenuOpen)}
+          className="flex items-center p-1.5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors border-l border-white/10"
+          title="Open Other Profile or Shell"
+        >
+          <ChevronDown className="w-3 h-3 opacity-70" />
+        </button>
+
+        {isAddMenuOpen && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setIsAddMenuOpen(false)} />
+            <div className="absolute top-9 left-0 z-50 w-64 p-1.5 bg-[#0e1222] border border-[var(--theme-border,#1e2640)] rounded-lg shadow-2xl text-xs space-y-1">
+              {activeTabId && (
                 <button
                   onClick={() => {
-                    addTab({ title: 'Local Shell' });
+                    duplicateTab(activeTabId);
                     setIsAddMenuOpen(false);
                   }}
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left rounded hover:bg-white/10 text-slate-200"
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left rounded-md hover:bg-cyan-500/10 text-cyan-300 font-medium"
                 >
-                  <Plus className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>New Local Shell</span>
+                  <Copy className="w-3.5 h-3.5" />
+                  <div className="truncate">
+                    <div>Duplicate Current Session</div>
+                    <div className="text-[10px] text-cyan-500/70 font-mono truncate">
+                      {tabs.find(t => t.id === activeTabId)?.title}
+                    </div>
+                  </div>
                 </button>
+              )}
 
-                <div className="my-1 border-t border-white/10" />
-                <div className="px-2.5 py-1 text-[10px] font-semibold tracking-wider text-slate-400 uppercase">
-                  Saved Profiles
-                </div>
+              <button
+                onClick={() => {
+                  addTab({ title: 'Local Shell', profile: undefined });
+                  setIsAddMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left rounded-md hover:bg-white/10 text-slate-200"
+              >
+                <Plus className="w-3.5 h-3.5 text-purple-400" />
+                <span>New Local Shell</span>
+              </button>
 
-                {profiles.slice(0, 5).map(p => (
-                  <button
-                    key={p.id}
-                    onClick={() => {
-                      addTab({ profile: p });
-                      setIsAddMenuOpen(false);
-                    }}
-                    className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left rounded hover:bg-white/10 text-slate-200"
-                  >
-                    <Server className="w-3.5 h-3.5 text-[var(--theme-primary,#00f0ff)]" />
-                    <span className="truncate">{p.name}</span>
-                  </button>
-                ))}
+              <div className="my-1 border-t border-white/10" />
+
+              <div className="px-2.5 py-1 text-[10px] font-semibold tracking-wider text-slate-400 uppercase flex items-center justify-between">
+                <span>Saved Profiles ({profiles.length})</span>
+                <button
+                  onClick={() => {
+                    setIsAddMenuOpen(false);
+                    setIsProfileModalOpen(true);
+                  }}
+                  className="text-cyan-400 hover:underline normal-case text-[10px]"
+                >
+                  + Add New
+                </button>
               </div>
-            </>
-          )}
-        </div>
+
+              <div className="max-h-60 overflow-y-auto space-y-0.5">
+                {profiles.length === 0 ? (
+                  <div className="px-2.5 py-2 text-slate-500 text-center text-[11px]">
+                    No saved profiles yet
+                  </div>
+                ) : (
+                  profiles.map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => {
+                        addTab({ profile: p });
+                        setIsAddMenuOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between px-2.5 py-1.5 text-left rounded-md hover:bg-white/10 text-slate-200 group"
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <Server
+                          className="w-3.5 h-3.5 shrink-0"
+                          style={{ color: p.colorTag || '#00f0ff' }}
+                        />
+                        <span className="truncate font-medium">{p.name}</span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                        {p.username}@{p.host}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Right side controls: Multi-Exec, Split, SFTP */}
-      <div className="flex items-center gap-1.5 pl-2 border-l border-white/10">
+      <div className="flex items-center gap-1.5 pl-2 border-l border-white/10 shrink-0">
         {/* Multi-Exec Toggle */}
         <button
           onClick={toggleMultiExec}
@@ -236,10 +295,10 @@ export const TerminalTabsHeader: React.FC = () => {
             onClick={() => setSplitMode('single')}
             className={`p-1 rounded transition-colors ${
               splitState.mode === 'single'
-                ? 'bg-white/10 text-white'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-cyan-500/20 text-cyan-300'
+                : 'text-slate-400 hover:text-white'
             }`}
-            title="Single View"
+            title="Single Terminal View"
           >
             <Maximize2 className="w-3.5 h-3.5" />
           </button>
@@ -247,10 +306,10 @@ export const TerminalTabsHeader: React.FC = () => {
             onClick={() => setSplitMode('vertical')}
             className={`p-1 rounded transition-colors ${
               splitState.mode === 'vertical'
-                ? 'bg-cyan-500/20 text-cyan-400'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-cyan-500/20 text-cyan-300'
+                : 'text-slate-400 hover:text-white'
             }`}
-            title="Vertical Split (Left / Right)"
+            title="Split Vertically (Side-by-Side)"
           >
             <Columns className="w-3.5 h-3.5" />
           </button>
@@ -258,27 +317,27 @@ export const TerminalTabsHeader: React.FC = () => {
             onClick={() => setSplitMode('horizontal')}
             className={`p-1 rounded transition-colors ${
               splitState.mode === 'horizontal'
-                ? 'bg-cyan-500/20 text-cyan-400'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-cyan-500/20 text-cyan-300'
+                : 'text-slate-400 hover:text-white'
             }`}
-            title="Horizontal Split (Top / Bottom)"
+            title="Split Horizontally (Stacked)"
           >
             <Rows className="w-3.5 h-3.5" />
           </button>
         </div>
 
-        {/* SFTP Drawer Toggle */}
+        {/* SFTP Dock Toggle */}
         <button
           onClick={toggleSftpDock}
           className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
             isSftpDocked
-              ? 'bg-[var(--theme-primary,#00f0ff)]/20 text-[var(--theme-primary,#00f0ff)] border border-[var(--theme-primary,#00f0ff)]/40 font-medium'
+              ? 'bg-cyan-500/20 text-cyan-300 font-semibold border border-cyan-500/30'
               : 'text-slate-400 hover:text-white hover:bg-white/5'
           }`}
-          title="Toggle SFTP Side Explorer"
+          title="Toggle Docked SFTP Explorer Panel"
         >
           <FolderTree className="w-3.5 h-3.5" />
-          <span className="hidden md:inline">SFTP</span>
+          <span className="hidden sm:inline">SFTP</span>
         </button>
       </div>
     </div>

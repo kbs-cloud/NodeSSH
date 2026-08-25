@@ -100,28 +100,35 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       title?: string;
       initialCommand?: string;
     }): string => {
-      const newId = 'tab-' + Date.now();
-      const title =
+      const currentActive = tabs.find(t => t.id === activeTabId);
+      const effectiveProfile = options?.profile !== undefined ? options.profile : currentActive?.profile;
+      const effectiveTitle =
         options?.title ||
         (options?.profile?.name
           ? options.profile.name
-          : options?.profile?.host
-          ? `${options.profile.username || 'user'}@${options.profile.host}`
+          : effectiveProfile?.name
+          ? `${effectiveProfile.name}`
+          : effectiveProfile?.host
+          ? `${effectiveProfile.username || 'user'}@${effectiveProfile.host}`
           : `Terminal ${tabs.length + 1}`);
+
+      const effectiveCommand = options?.initialCommand !== undefined ? options.initialCommand : currentActive?.initialCommand;
+
+      const newId = 'tab-' + Date.now();
 
       const newTab: TerminalTab = {
         id: newId,
-        title,
-        profile: options?.profile,
-        profileId: options?.profile?.id,
+        title: effectiveTitle,
+        profile: effectiveProfile,
+        profileId: effectiveProfile?.id,
         status: 'connecting',
-        cwd: options?.profile?.defaultPath || '/home/ubuntu',
+        cwd: effectiveProfile?.defaultPath || '/home/ubuntu',
         cols: 80,
         rows: 24,
         createdAt: Date.now(),
         lastActive: Date.now(),
-        closeOnTabClose: options?.profile?.closeSessionOnExit ?? true,
-        initialCommand: options?.initialCommand || options?.profile?.startupCommand,
+        closeOnTabClose: effectiveProfile?.closeSessionOnExit ?? true,
+        initialCommand: effectiveCommand || effectiveProfile?.startupCommand,
         latencyMs: 12,
       };
 
@@ -135,7 +142,7 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       return newId;
     },
-    [tabs.length, splitState.mode, splitState.secondaryTabId]
+    [tabs, activeTabId, splitState.mode, splitState.secondaryTabId]
   );
 
   const closeTab = useCallback(

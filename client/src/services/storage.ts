@@ -57,8 +57,7 @@ class StorageService {
     const data = localStorage.getItem(STORAGE_KEYS.PROFILES);
     if (!data) return [];
     try {
-      const items: ServerProfile[] = JSON.parse(data);
-      return items.filter(p => !p.id.startsWith('prof-'));
+      return JSON.parse(data);
     } catch {
       return [];
     }
@@ -73,8 +72,7 @@ class StorageService {
     const data = localStorage.getItem(STORAGE_KEYS.KEYS);
     if (!data) return [];
     try {
-      const items: KeyVaultItem[] = JSON.parse(data);
-      return items.filter(k => !k.id.startsWith('key-'));
+      return JSON.parse(data);
     } catch {
       return [];
     }
@@ -89,8 +87,7 @@ class StorageService {
     const data = localStorage.getItem(STORAGE_KEYS.TUNNELS);
     if (!data) return [];
     try {
-      const items: SSHTunnel[] = JSON.parse(data);
-      return items.filter(t => !t.id.startsWith('tun-'));
+      return JSON.parse(data);
     } catch {
       return [];
     }
@@ -105,8 +102,7 @@ class StorageService {
     const data = localStorage.getItem(STORAGE_KEYS.SNIPPETS);
     if (!data) return [];
     try {
-      const items: Snippet[] = JSON.parse(data);
-      return items.filter(s => !s.id.startsWith('snip-'));
+      return JSON.parse(data);
     } catch {
       return [];
     }
