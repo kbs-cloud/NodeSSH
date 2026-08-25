@@ -6,6 +6,7 @@ import {
   getProfileById,
   updateProfile,
   deleteProfile,
+  toProfileDTO,
 } from '../db/profiles';
 import { exportToMobaXtermIni, parseMobaXtermIni } from '../utils/ini-parser';
 import { ProfileCreateDTO } from '../types';
@@ -20,7 +21,7 @@ router.get('/', (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user!.userId;
     const profiles = getProfilesByUserId(userId);
-    res.json(profiles);
+    res.json(profiles.map(toProfileDTO));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

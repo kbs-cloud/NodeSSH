@@ -168,3 +168,42 @@ export function deleteProfile(userId: string, profileId: string): boolean {
   const result = stmt.run(profileId, userId);
   return result.changes > 0;
 }
+
+export function toProfileDTO(p: Profile): any {
+  let tags: string[] = [];
+  if (Array.isArray(p.tags)) {
+    tags = p.tags;
+  } else if (typeof p.tags === 'string' && p.tags.trim()) {
+    try {
+      const parsed = JSON.parse(p.tags);
+      tags = Array.isArray(parsed) ? parsed : [p.tags];
+    } catch {
+      tags = p.tags.split(',').map((s: string) => s.trim()).filter(Boolean);
+    }
+  }
+
+  return {
+    id: p.id,
+    userId: p.user_id,
+    name: p.name,
+    host: p.host,
+    port: p.port,
+    username: p.username,
+    authType: p.auth_type,
+    password: p.password || undefined,
+    keyId: p.key_id || undefined,
+    jumpHostId: p.jump_host_id || undefined,
+    defaultPath: p.initial_dir || undefined,
+    startupCommand: p.startup_command || undefined,
+    closeSessionOnExit: p.close_on_exit !== 0,
+    keepaliveInterval: p.keepalive_interval,
+    folder: p.group_name || 'General',
+    group_name: p.group_name || 'General',
+    tags,
+    colorTag: (p as any).colorTag || '#00f0ff',
+    icon: (p as any).icon || 'server',
+    isFavorite: (p as any).isFavorite || false,
+    createdAt: p.created_at,
+    updatedAt: p.updated_at,
+  };
+}
