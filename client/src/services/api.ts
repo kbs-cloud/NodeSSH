@@ -125,27 +125,46 @@ class ApiClient {
 
   async saveProfile(profile: ServerProfile): Promise<ServerProfile> {
     try {
-      const isNew = !profile.id || profile.id.startsWith('temp-');
+      const isNew = !profile.id || profile.id.startsWith('temp-') || profile.id.startsWith('prof-');
       const url = isNew ? `${API_BASE}/profiles` : `${API_BASE}/profiles/${profile.id}`;
       const method = isNew ? 'POST' : 'PUT';
-      const res = await fetch(url, {
+      let res = await fetch(url, {
         method,
         headers: this.getHeaders(),
         body: JSON.stringify(profile),
       });
+
+      if (!res.ok && res.status === 404 && !isNew) {
+        // Fallback to POST if server did not find profile ID
+        res = await fetch(`${API_BASE}/profiles`, {
+          method: 'POST',
+          headers: this.getHeaders(),
+          body: JSON.stringify(profile),
+        });
+      }
+
       if (res.ok) {
-        return await res.json();
+        const saved = await res.json();
+        const currentProfiles = storage.getProfiles();
+        const idx = currentProfiles.findIndex(p => p.id === saved.id || (profile.id && p.id === profile.id));
+        if (idx >= 0) {
+          currentProfiles[idx] = saved;
+        } else {
+          currentProfiles.unshift(saved);
+        }
+        storage.saveProfiles(currentProfiles);
+        return saved;
       }
     } catch {}
 
-    // Offline storage
+    // Offline storage fallback
     const profiles = storage.getProfiles();
     const existingIdx = profiles.findIndex(p => p.id === profile.id);
     if (existingIdx >= 0) {
       profiles[existingIdx] = profile;
     } else {
       if (!profile.id) profile.id = 'prof-' + Date.now();
-      profiles.push(profile);
+      profiles.unshift(profile);
     }
     storage.saveProfiles(profiles);
     return profile;

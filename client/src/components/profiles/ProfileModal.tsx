@@ -72,7 +72,7 @@ export const ProfileModal: React.FC = () => {
     const tags = tagsString.split(',').map(t => t.trim()).filter(Boolean);
 
     const profileData: ServerProfile = {
-      id: editingProfile ? editingProfile.id : 'prof-' + Date.now(),
+      id: editingProfile ? editingProfile.id : '',
       name: name.trim() || `${username}@${host}`,
       folder: folder.trim() || 'Default',
       host: host.trim(),

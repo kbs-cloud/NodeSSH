@@ -16,6 +16,27 @@ const router = Router();
 // Require authentication for all profile routes
 router.use(requireAuth);
 
+function normalizeProfileInput(body: any): ProfileCreateDTO {
+  return {
+    name: (body.name || '').trim() || 'Unnamed Server',
+    host: (body.host || '').trim() || '127.0.0.1',
+    port: Number(body.port || 22),
+    username: (body.username || '').trim() || 'root',
+    auth_type: body.auth_type || body.authType || 'password',
+    password: body.password || undefined,
+    key_id: body.key_id || body.keyId || undefined,
+    passphrase: body.passphrase || undefined,
+    jump_host_id: body.jump_host_id || body.jumpHostId || undefined,
+    initial_dir: body.initial_dir || body.defaultPath || undefined,
+    startup_command: body.startup_command || body.startupCommand || undefined,
+    keepalive_interval: body.keepalive_interval !== undefined ? Number(body.keepalive_interval) : body.keepaliveInterval !== undefined ? Number(body.keepaliveInterval) : 15,
+    close_on_exit: body.close_on_exit !== undefined ? Boolean(body.close_on_exit) : body.closeSessionOnExit !== undefined ? Boolean(body.closeSessionOnExit) : true,
+    group_name: body.group_name || body.folder || undefined,
+    tags: body.tags || [],
+    terminal_theme: body.terminal_theme || body.colorTag || body.terminalTheme || undefined,
+  };
+}
+
 // List Profiles
 router.get('/', (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -45,7 +66,7 @@ router.get('/export', (req: AuthenticatedRequest, res: Response) => {
     // Default JSON export
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', 'attachment; filename="nodessh-profiles.json"');
-    res.json(profiles);
+    res.json(profiles.map(toProfileDTO));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -57,14 +78,13 @@ router.post('/import', (req: AuthenticatedRequest, res: Response) => {
     const userId = req.user!.userId;
     const { format, content, profiles: profileArray } = req.body;
 
-    let toImport: ProfileCreateDTO[] = [];
+    let toImport: any[] = [];
 
     if (format === 'ini' && typeof content === 'string') {
       toImport = parseMobaXtermIni(content);
     } else if (Array.isArray(profileArray)) {
       toImport = profileArray;
     } else if (typeof content === 'string') {
-      // Try JSON first, fallback to INI
       try {
         const parsed = JSON.parse(content);
         if (Array.isArray(parsed)) {
@@ -79,22 +99,10 @@ router.post('/import', (req: AuthenticatedRequest, res: Response) => {
 
     const createdProfiles = [];
     for (const item of toImport) {
-      if (item.name && item.host && item.username) {
-        const created = createProfile(userId, {
-          name: item.name,
-          host: item.host,
-          port: item.port || 22,
-          username: item.username,
-          auth_type: item.auth_type || 'password',
-          group_name: item.group_name,
-          initial_dir: item.initial_dir,
-          startup_command: item.startup_command,
-          keepalive_interval: item.keepalive_interval ?? 15,
-          close_on_exit: item.close_on_exit ?? true,
-          tags: item.tags,
-          terminal_theme: item.terminal_theme,
-        });
-        createdProfiles.push(created);
+      const normalized = normalizeProfileInput(item);
+      if (normalized.name && normalized.host && normalized.username) {
+        const created = createProfile(userId, normalized);
+        createdProfiles.push(toProfileDTO(created));
       }
     }
 
@@ -117,7 +125,7 @@ router.get('/:id', (req: AuthenticatedRequest, res: Response) => {
       res.status(404).json({ error: 'Profile not found' });
       return;
     }
-    res.json(profile);
+    res.json(toProfileDTO(profile));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -127,15 +135,15 @@ router.get('/:id', (req: AuthenticatedRequest, res: Response) => {
 router.post('/', (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user!.userId;
-    const { name, host, port, username, auth_type } = req.body;
+    const normalized = normalizeProfileInput(req.body);
 
-    if (!name || !host || !username) {
+    if (!normalized.name || !normalized.host || !normalized.username) {
       res.status(400).json({ error: 'Name, Host, and Username are required' });
       return;
     }
 
-    const profile = createProfile(userId, req.body);
-    res.status(201).json(profile);
+    const profile = createProfile(userId, normalized);
+    res.status(201).json(toProfileDTO(profile));
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
@@ -145,12 +153,13 @@ router.post('/', (req: AuthenticatedRequest, res: Response) => {
 router.put('/:id', (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user!.userId;
-    const updated = updateProfile(userId, req.params.id, req.body);
+    const normalized = normalizeProfileInput(req.body);
+    const updated = updateProfile(userId, req.params.id, normalized);
     if (!updated) {
       res.status(404).json({ error: 'Profile not found' });
       return;
     }
-    res.json(updated);
+    res.json(toProfileDTO(updated));
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
