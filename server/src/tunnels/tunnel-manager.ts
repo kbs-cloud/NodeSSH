@@ -1,7 +1,7 @@
 import os from 'os';
 import { Tunnel, ActiveTunnelInfo, TunnelRuntimeMetrics, NetworkInterfaceInfo } from '../types';
 import { getTunnelById, getTunnelsByUserId, getAutoStartTunnels } from '../db/tunnels';
-import { getProfileById } from '../db/profiles';
+import { getProfileById, getProfilesByUserId } from '../db/profiles';
 import { createSSHConnection } from '../ssh/connection';
 import { ActiveTunnelInstance } from './types';
 import { createLocalForwardTunnel } from './local-forward';
@@ -28,9 +28,16 @@ class TunnelManager {
       await this.stopTunnel(userId, tunnelId);
     }
 
-    const profile = getProfileById(userId, tunnel.profile_id);
+    let profile = tunnel.profile_id ? getProfileById(userId, tunnel.profile_id) : null;
     if (!profile) {
-      throw new Error(`SSH profile for tunnel '${tunnel.name}' not found`);
+      const allProfiles = getProfilesByUserId(userId);
+      if (allProfiles.length > 0) {
+        profile = allProfiles[0];
+      }
+    }
+
+    if (!profile) {
+      throw new Error(`No SSH server profile found to route tunnel '${tunnel.name}'. Please create a Server Profile first.`);
     }
 
     const sshConn = await createSSHConnection({
