@@ -83,7 +83,7 @@ export interface TerminalSplitState {
   splitRatio: number; // default 0.5
 }
 
-export type TunnelType = 'local' | 'remote' | 'socks5';
+export type TunnelType = 'direct' | 'local' | 'remote' | 'socks5';
 export type TunnelStatus = 'active' | 'stopped' | 'starting' | 'error';
 
 export interface SSHTunnel {

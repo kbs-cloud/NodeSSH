@@ -7,6 +7,7 @@ import { ActiveTunnelInstance } from './types';
 import { createLocalForwardTunnel } from './local-forward';
 import { createRemoteForwardTunnel } from './remote-forward';
 import { createSocks5ProxyTunnel } from './socks5-server';
+import { createDirectTcpProxy } from './direct-proxy';
 
 class TunnelManager {
   private activeTunnels: Map<string, ActiveTunnelInstance> = new Map();
@@ -28,6 +29,13 @@ class TunnelManager {
       await this.stopTunnel(userId, tunnelId);
     }
 
+    // Direct Node TCP Proxy Mode: No SSH connection needed
+    if (tunnel.tunnel_type === 'direct' || tunnel.tunnel_type === 'proxy' || tunnel.tunnel_type === 'tcp') {
+      const instance = createDirectTcpProxy(tunnel);
+      this.activeTunnels.set(tunnel.id, instance);
+      return instance.getMetrics();
+    }
+
     let profile = tunnel.profile_id ? getProfileById(userId, tunnel.profile_id) : null;
     if (!profile) {
       const allProfiles = getProfilesByUserId(userId);
@@ -36,7 +44,13 @@ class TunnelManager {
       }
     }
 
+    // If no profile found but local forward requested, fall back smoothly to direct Node TCP proxy
     if (!profile) {
+      if (tunnel.tunnel_type === 'local') {
+        const instance = createDirectTcpProxy(tunnel);
+        this.activeTunnels.set(tunnel.id, instance);
+        return instance.getMetrics();
+      }
       throw new Error(`No SSH server profile found to route tunnel '${tunnel.name}'. Please create a Server Profile first.`);
     }
 
@@ -53,7 +67,7 @@ class TunnelManager {
       } else if (tunnel.tunnel_type === 'socks5' || tunnel.tunnel_type === 'dynamic') {
         instance = createSocks5ProxyTunnel(tunnel, sshConn);
       } else {
-        // Default: local port forwarding
+        // Default: local port forwarding through SSH
         instance = createLocalForwardTunnel(tunnel, sshConn);
       }
 

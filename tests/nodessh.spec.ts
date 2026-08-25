@@ -33,17 +33,10 @@ test.describe('NodeSSH Comprehensive E2E Test Suite', () => {
       await page.click('button:has-text("Create Account")');
     }
 
-    // Open a new local shell from the empty dashboard or tab bar
-    const newShellBtn = page.locator('button:has-text("New Local Shell")').first();
-    if (await newShellBtn.isVisible()) {
-      await newShellBtn.click();
-    } else {
-      const addTabBtn = page.locator('button[title*="New Terminal Tab"]').first();
-      if (await addTabBtn.isVisible()) {
-        await addTabBtn.click();
-        const option = page.locator('button:has-text("New Local Shell")').first();
-        if (await option.isVisible()) await option.click();
-      }
+    // Open a terminal session from the dashboard or header plus button
+    const newTabBtn = page.locator('button[title*="Session"], button[title*="Terminal Tab"], button:has-text("New Local Shell")').first();
+    if (await newTabBtn.isVisible()) {
+      await newTabBtn.click();
     }
 
     // Wait for terminal screen to load

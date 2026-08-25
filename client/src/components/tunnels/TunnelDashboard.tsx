@@ -8,7 +8,7 @@ import { AddTunnelModal } from './AddTunnelModal';
 export const TunnelDashboard: React.FC = () => {
   const { tunnels, setIsAddTunnelOpen, setEditingTunnel } = useApp();
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState<'all' | 'local' | 'remote' | 'socks5'>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'direct' | 'local' | 'remote' | 'socks5'>('all');
 
   const activeTunnels = tunnels.filter(t => t.status === 'active');
   const totalClients = tunnels.reduce((sum, t) => sum + (t.status === 'active' ? t.activeClients : 0), 0);
@@ -35,10 +35,10 @@ export const TunnelDashboard: React.FC = () => {
         <div>
           <h1 className="text-xl font-bold text-white tracking-wide flex items-center gap-2">
             <Network className="w-6 h-6 text-cyan-400" />
-            Visual SSH Tunneling & Port Forwarding
+            Port Forwarding, TCP Relays & SSH Tunnels
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Zero-latency Local (-L), Remote (-R), and SOCKS5 (-D) tunnels with LAN subnet sharing
+            Direct Node.js TCP relays, Local (-L), Remote (-R), and SOCKS5 (-D) proxies with optional LAN sharing
           </p>
         </div>
 
@@ -50,7 +50,7 @@ export const TunnelDashboard: React.FC = () => {
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--theme-primary,#00f0ff)] hover:opacity-90 text-black font-bold text-xs shadow-lg transition-all"
         >
           <Plus className="w-4 h-4" />
-          <span>New SSH Tunnel</span>
+          <span>New Forwarder / Tunnel</span>
         </button>
       </div>
 
@@ -61,7 +61,7 @@ export const TunnelDashboard: React.FC = () => {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="p-3.5 rounded-xl bg-[#0e1222] border border-[var(--theme-border,#1e2640)]">
           <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span>Active Tunnels</span>
+            <span>Active Tunnels / Relays</span>
             <Activity className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="mt-2 flex items-baseline gap-2">
@@ -93,12 +93,11 @@ export const TunnelDashboard: React.FC = () => {
 
         <div className="p-3.5 rounded-xl bg-[#0e1222] border border-[var(--theme-border,#1e2640)]">
           <div className="flex items-center justify-between text-slate-400 text-xs">
-            <span>Security & Isolation</span>
+            <span>Relay Engine</span>
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="mt-2">
-            <span className="text-xs font-semibold text-emerald-400">SSH2 Encrypted Channel</span>
-            <p className="text-[10px] text-slate-500 mt-0.5">Isolated per user session</p>
+            <span className="text-xs font-semibold text-emerald-400">Node TCP + SSH2 Core</span>
           </div>
         </div>
       </div>
@@ -109,7 +108,7 @@ export const TunnelDashboard: React.FC = () => {
           <Search className="w-4 h-4 text-slate-400" />
           <input
             type="text"
-            placeholder="Search tunnels by name, port, or host..."
+            placeholder="Search forwarders by name, port, or host..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="bg-transparent border-none outline-none text-white placeholder-slate-500 w-full font-mono text-xs"
@@ -118,10 +117,11 @@ export const TunnelDashboard: React.FC = () => {
 
         <div className="flex items-center bg-[#0e1222] border border-[var(--theme-border,#1e2640)] rounded-lg p-1 text-xs">
           {[
-            { id: 'all', label: 'All Tunnels' },
-            { id: 'local', label: 'Local (-L)' },
-            { id: 'remote', label: 'Remote (-R)' },
-            { id: 'socks5', label: 'SOCKS5 (-D)' },
+            { id: 'all', label: 'All' },
+            { id: 'direct', label: '⚡ Direct TCP Relay' },
+            { id: 'local', label: '🔒 SSH Local (-L)' },
+            { id: 'remote', label: '🔄 SSH Remote (-R)' },
+            { id: 'socks5', label: '🌐 SOCKS5 (-D)' },
           ].map(f => (
             <button
               key={f.id}

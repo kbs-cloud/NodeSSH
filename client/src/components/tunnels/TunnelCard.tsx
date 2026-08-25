@@ -16,6 +16,7 @@ export const TunnelCard: React.FC<TunnelCardProps> = ({ tunnel }) => {
   const isActive = tunnel.status === 'active';
 
   const typeBadges = {
+    direct: { label: 'Node TCP Proxy', color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' },
     local: { label: 'Local Forward (-L)', color: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/40' },
     remote: { label: 'Remote Forward (-R)', color: 'bg-purple-500/20 text-purple-400 border-purple-500/40' },
     socks5: { label: 'Dynamic SOCKS5 (-D)', color: 'bg-amber-500/20 text-amber-400 border-amber-500/40' },
