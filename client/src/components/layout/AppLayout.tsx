@@ -12,6 +12,7 @@ import { TunnelDashboard } from '../tunnels/TunnelDashboard';
 import { KeyVault } from '../keys/KeyVault';
 import { SnippetLibrary } from '../snippets/SnippetLibrary';
 import { AuthModal } from '../auth/AuthModal';
+import { HostKeyModal } from '../keys/HostKeyModal';
 import { SettingsModal } from '../settings/SettingsModal';
 import { ShortcutsModal } from '../settings/ShortcutsModal';
 import { Toast } from '../common/Toast';
@@ -27,6 +28,8 @@ export const AppLayout: React.FC = () => {
     setEditingPermissionsFile,
     isAuthModalOpen,
     setIsAuthModalOpen,
+    hostKeyPrompt,
+    resolveHostKeyPrompt,
     toast,
     setIsSidebarCollapsed,
   } = useApp();
@@ -149,6 +152,12 @@ export const AppLayout: React.FC = () => {
       <StatusBar />
 
       {/* Global Modals & Notifications */}
+      <HostKeyModal
+        isOpen={!!hostKeyPrompt}
+        data={hostKeyPrompt}
+        onAccept={(save) => resolveHostKeyPrompt(true, save)}
+        onReject={() => resolveHostKeyPrompt(false, false)}
+      />
       <CodeEditorModal file={editingFile} onClose={() => setEditingFile(null)} />
       <PermissionsModal
         file={editingPermissionsFile}

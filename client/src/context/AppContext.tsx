@@ -88,6 +88,18 @@ interface AppContextType {
   isAuthModalOpen: boolean;
   setIsAuthModalOpen: (open: boolean) => void;
 
+  // Host Key Verification (TOFU & MITM Protection)
+  hostKeyPrompt: {
+    host: string;
+    port: number;
+    keyType: string;
+    fingerprint: string;
+    status: 'new' | 'mismatch';
+    storedFingerprint?: string;
+  } | null;
+  setHostKeyPrompt: (data: any) => void;
+  resolveHostKeyPrompt: (accept: boolean, saveToKnownHosts: boolean) => void;
+
   // SFTP Modals
   editingFile: SFTPFileItem | null;
   setEditingFile: (file: SFTPFileItem | null) => void;
@@ -134,9 +146,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
-  const [editingFile, setEditingFile] = useState<SFTPFileItem | null>(null);
-  const [editingPermissionsFile, setEditingPermissionsFile] = useState<SFTPFileItem | null>(null);
-
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -145,6 +154,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setToast(prev => (prev?.message === message ? null : prev));
     }, 3500);
   }, []);
+
+  // Host Key Prompt state
+  const [hostKeyPrompt, setHostKeyPrompt] = useState<{
+    host: string;
+    port: number;
+    keyType: string;
+    fingerprint: string;
+    status: 'new' | 'mismatch';
+    storedFingerprint?: string;
+    onDecision?: (accept: boolean, saveToKnownHosts: boolean) => void;
+  } | null>(null);
+
+  const resolveHostKeyPrompt = useCallback((accept: boolean, saveToKnownHosts: boolean) => {
+    if (hostKeyPrompt?.onDecision) {
+      hostKeyPrompt.onDecision(accept, saveToKnownHosts);
+    }
+    if (accept && saveToKnownHosts && hostKeyPrompt) {
+      api.trustHost({
+        host: hostKeyPrompt.host,
+        port: hostKeyPrompt.port,
+        keyType: hostKeyPrompt.keyType,
+        fingerprint: hostKeyPrompt.fingerprint,
+      });
+      showToast(`Saved host key for ${hostKeyPrompt.host}:${hostKeyPrompt.port} to Known Hosts`, 'success');
+    }
+    setHostKeyPrompt(null);
+  }, [hostKeyPrompt, showToast]);
+
+  const [editingFile, setEditingFile] = useState<SFTPFileItem | null>(null);
+  const [editingPermissionsFile, setEditingPermissionsFile] = useState<SFTPFileItem | null>(null);
 
   // Initial load
   useEffect(() => {
@@ -403,6 +442,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         isAuthModalOpen,
         setIsAuthModalOpen,
+
+        hostKeyPrompt,
+        setHostKeyPrompt,
+        resolveHostKeyPrompt,
 
         editingFile,
         setEditingFile,

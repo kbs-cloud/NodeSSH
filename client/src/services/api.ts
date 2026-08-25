@@ -240,6 +240,48 @@ class ApiClient {
     };
   }
 
+  // --- Known Hosts ---
+  async getKnownHosts(): Promise<any[]> {
+    try {
+      const res = await fetch(`${API_BASE}/keys/known-hosts`, {
+        headers: this.getHeaders(),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {}
+    return [];
+  }
+
+  async trustHost(data: {
+    host: string;
+    port: number;
+    keyType: string;
+    fingerprint: string;
+    publicKey?: string;
+  }): Promise<{ success: boolean; host?: any }> {
+    try {
+      const res = await fetch(`${API_BASE}/keys/trust-host`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(data),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {}
+    return { success: true };
+  }
+
+  async deleteKnownHost(id: string): Promise<void> {
+    try {
+      await fetch(`${API_BASE}/keys/known-hosts/${id}`, {
+        method: 'DELETE',
+        headers: this.getHeaders(),
+      });
+    } catch {}
+  }
+
   // --- Tunnels ---
   async getTunnels(): Promise<SSHTunnel[]> {
     try {

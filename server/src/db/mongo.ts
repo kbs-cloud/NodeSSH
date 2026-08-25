@@ -1,6 +1,6 @@
-import { MongoClient, Db, Collection } from 'mongodb';
+import { MongoClient, Db } from 'mongodb';
 import { config } from '../config';
-import { User, ServerProfile, SshKey, SshTunnel, Snippet, UserSettings } from '../types';
+import { User, Profile, SSHKey, Tunnel, Snippet, UserSettings } from '../types';
 
 let mongoClient: MongoClient | null = null;
 let mongoDb: Db | null = null;

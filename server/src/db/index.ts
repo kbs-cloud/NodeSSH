@@ -110,11 +110,26 @@ function initSchema(db: DatabaseType): void {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS known_hosts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      host TEXT NOT NULL,
+      port INTEGER NOT NULL DEFAULT 22,
+      key_type TEXT NOT NULL,
+      fingerprint TEXT NOT NULL,
+      public_key TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      UNIQUE(user_id, host, port)
+    );
+
     -- Indexes for high performance query isolation by user_id
     CREATE INDEX IF NOT EXISTS idx_profiles_user ON profiles(user_id);
     CREATE INDEX IF NOT EXISTS idx_keys_user ON ssh_keys(user_id);
     CREATE INDEX IF NOT EXISTS idx_tunnels_user ON tunnels(user_id);
     CREATE INDEX IF NOT EXISTS idx_snippets_user ON snippets(user_id);
+    CREATE INDEX IF NOT EXISTS idx_known_hosts_user ON known_hosts(user_id);
     CREATE INDEX IF NOT EXISTS idx_users_sso ON users(sso_id);
   `);
 }

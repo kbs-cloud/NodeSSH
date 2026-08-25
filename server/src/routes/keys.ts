@@ -155,4 +155,57 @@ router.post('/push-to-server', async (req: AuthenticatedRequest, res: Response) 
   }
 });
 
+// Known Hosts management
+router.get('/known-hosts', (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const { getKnownHostsByUserId } = require('../db/known-hosts');
+    const hosts = getKnownHostsByUserId(userId);
+    res.json(hosts);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/trust-host', (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const { host, port, keyType, fingerprint, publicKey } = req.body;
+
+    if (!host || !fingerprint) {
+      res.status(400).json({ error: 'Host and Fingerprint are required' });
+      return;
+    }
+
+    const { trustHostKey } = require('../db/known-hosts');
+    const trusted = trustHostKey({
+      userId,
+      host,
+      port: port || 22,
+      keyType: keyType || 'ssh-ed25519',
+      fingerprint,
+      publicKey,
+    });
+
+    res.json({ success: true, host: trusted });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/known-hosts/:id', (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const { deleteKnownHost } = require('../db/known-hosts');
+    const deleted = deleteKnownHost(userId, req.params.id);
+    if (!deleted) {
+      res.status(404).json({ error: 'Known host not found' });
+      return;
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

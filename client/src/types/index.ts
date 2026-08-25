@@ -114,6 +114,7 @@ export interface KeyVaultItem {
   id: string;
   name: string;
   type: 'ed25519' | 'rsa' | 'ecdsa' | 'imported';
+  keyType?: string;
   publicKey: string;
   privateKey: string;
   fingerprint: string;
