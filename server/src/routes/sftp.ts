@@ -12,6 +12,7 @@ import {
   sftpDelete,
   sftpRename,
   sftpChmod,
+  sftpStreamDirectoryAsZip,
 } from '../ssh/sftp-service';
 import path from 'path';
 
@@ -245,7 +246,7 @@ router.post('/upload', upload.single('file'), async (req: AuthenticatedRequest, 
   }
 });
 
-// Download file
+// Download file or entire directory as ZIP
 router.get('/download', async (req: AuthenticatedRequest, res: Response) => {
   let session: any;
   try {
@@ -259,25 +260,37 @@ router.get('/download', async (req: AuthenticatedRequest, res: Response) => {
     }
 
     session = await openSFTPSession({ userId, profileId });
-    const filename = path.basename(remotePath);
+    const stat = await sftpStat(session.sftp, remotePath);
+    const basename = path.basename(remotePath) || 'download';
 
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
-    res.setHeader('Content-Type', 'application/octet-stream');
+    if (stat.isDirectory) {
+      // Directory download -> Stream as ZIP archive
+      const zipFilename = `${basename}.zip`;
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(zipFilename)}"`);
+      res.setHeader('Content-Type', 'application/zip');
 
-    const stream = session.sftp.createReadStream(remotePath);
-
-    stream.on('error', (err: any) => {
-      if (!res.headersSent) {
-        res.status(500).json({ error: `Download error: ${err.message}` });
-      }
+      await sftpStreamDirectoryAsZip(session.sftp, remotePath, res);
       if (session) session.close();
-    });
+    } else {
+      // Single file download -> Stream raw bytes
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(basename)}"`);
+      res.setHeader('Content-Type', 'application/octet-stream');
 
-    stream.on('close', () => {
-      if (session) session.close();
-    });
+      const stream = session.sftp.createReadStream(remotePath);
 
-    stream.pipe(res);
+      stream.on('error', (err: any) => {
+        if (!res.headersSent) {
+          res.status(500).json({ error: `Download error: ${err.message}` });
+        }
+        if (session) session.close();
+      });
+
+      stream.on('close', () => {
+        if (session) session.close();
+      });
+
+      stream.pipe(res);
+    }
   } catch (err: any) {
     if (session) session.close();
     if (!res.headersSent) {

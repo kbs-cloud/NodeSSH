@@ -3,6 +3,7 @@ import { createSSHConnection, SSHConnectionOptions, SSHConnectionResult } from '
 import { SFTPFileEntry, SFTPStat } from '../types';
 import { Readable, Writable } from 'stream';
 import path from 'path';
+const archiver = require('archiver');
 
 export interface SFTPContext {
   sftp: SFTPWrapper;
@@ -330,4 +331,52 @@ export async function sftpChmod(
       resolve();
     });
   });
+}
+
+/**
+ * Streams an entire remote SFTP directory recursively as a ZIP archive
+ */
+export async function sftpStreamDirectoryAsZip(
+  sftp: SFTPWrapper,
+  remoteDirPath: string,
+  outputStream: Writable
+): Promise<void> {
+  const normalizedPath = remoteDirPath.replace(/\\/g, '/');
+  const archive = typeof archiver.ZipArchive === 'function'
+    ? new archiver.ZipArchive({ zlib: { level: 6 } })
+    : (archiver as any)('zip', { zlib: { level: 6 } });
+
+  archive.on('error', (err: any) => {
+    try {
+      archive.destroy();
+    } catch {}
+  });
+
+  archive.pipe(outputStream);
+
+  async function traverse(currentDir: string, relativePrefix: string = '') {
+    const list = await sftpList(sftp, currentDir);
+    for (const item of list) {
+      if (item.filename === '.' || item.filename === '..') continue;
+
+      const itemFullPath = `${currentDir.replace(/\/+$/, '')}/${item.filename}`;
+      const itemRelPath = relativePrefix ? `${relativePrefix}/${item.filename}` : item.filename;
+
+      if (item.isDirectory) {
+        archive.append(Buffer.alloc(0), { name: `${itemRelPath}/` });
+        try {
+          await traverse(itemFullPath, itemRelPath);
+        } catch {
+          // Ignore permission errors on subfolders
+        }
+      } else {
+        const fileStream = sftp.createReadStream(itemFullPath);
+        archive.append(fileStream, { name: itemRelPath, mode: item.mode });
+      }
+    }
+  }
+
+  const baseDirName = path.basename(normalizedPath) || 'folder';
+  await traverse(normalizedPath, baseDirName);
+  await archive.finalize();
 }

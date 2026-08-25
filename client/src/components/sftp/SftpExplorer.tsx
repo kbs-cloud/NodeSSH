@@ -14,6 +14,7 @@ import {
   ArrowRight,
   Edit2,
   Folder,
+  Download,
 } from 'lucide-react';
 import { SFTPFileItem } from '../../types';
 import { api } from '../../services/api';
@@ -43,8 +44,49 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
   const [showHidden, setShowHidden] = useState<boolean>(true);
   const [searchFilter, setSearchFilter] = useState<string>('');
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
+  const [isDownloadDragOver, setIsDownloadDragOver] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadFileName, setUploadFileName] = useState<string>('');
+
+  const handleDownloadDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDownloadDragOver(false);
+
+    try {
+      const dataStr = e.dataTransfer.getData('application/json');
+      if (dataStr) {
+        const { file } = JSON.parse(dataStr);
+        if (file) {
+          const isDir = file.type === 'directory';
+          const downloadName = isDir ? `${file.name}.zip` : file.name;
+          showToast(isDir ? `Compressing & downloading folder "${file.name}" as .zip...` : `Downloading ${file.name}...`, 'info');
+
+          const q = new URLSearchParams({ path: file.path });
+          if (profileId) q.set('profileId', profileId);
+          const token = localStorage.getItem('nodessh_token') || '';
+
+          const res = await fetch(`/api/sftp/download?${q.toString()}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+
+          if (!res.ok) throw new Error('Download failed');
+
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = downloadName;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          showToast(isDir ? `Downloaded directory "${downloadName}" successfully!` : `Downloaded ${file.name}`, 'success');
+        }
+      }
+    } catch (err: any) {
+      showToast(`Download failed: ${err.message}`, 'error');
+    }
+  };
 
   // Editable path bar state
   const [pathInput, setPathInput] = useState<string>(sftpCurrentPath);
@@ -413,7 +455,32 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
         onRefresh={loadFiles}
       />
 
-      {/* Drag & drop overlay indicator */}
+      {/* Interactive Download Dropzone Bar at Bottom */}
+      <div
+        onDragOver={e => {
+          e.preventDefault();
+          setIsDownloadDragOver(true);
+        }}
+        onDragLeave={() => setIsDownloadDragOver(false)}
+        onDrop={handleDownloadDrop}
+        className={`px-3 py-2 border-t transition-all flex items-center justify-between text-xs font-mono select-none ${
+          isDownloadDragOver
+            ? 'bg-emerald-950/80 border-emerald-400 text-emerald-300 ring-2 ring-emerald-400 ring-inset'
+            : 'bg-[#090b14]/90 border-[var(--theme-border,#1e2640)] text-slate-400'
+        }`}
+      >
+        <div className="flex items-center gap-2">
+          <Download className={`w-3.5 h-3.5 ${isDownloadDragOver ? 'text-emerald-400 animate-bounce' : 'text-slate-500'}`} />
+          <span className="text-[11px]">
+            {isDownloadDragOver ? 'Release to download item / folder as .ZIP' : 'Drag file or folder here to Download'}
+          </span>
+        </div>
+        <span className="text-[10px] text-slate-500 bg-white/5 px-1.5 py-0.5 rounded">
+          Folders auto-zip
+        </span>
+      </div>
+
+      {/* Drag & drop upload overlay indicator */}
       {isDragOver && (
         <div className="absolute inset-0 z-30 bg-cyan-950/90 border-2 border-dashed border-cyan-400 flex flex-col items-center justify-center gap-3 backdrop-blur-sm pointer-events-none">
           <Upload className="w-10 h-10 text-cyan-400 animate-bounce" />

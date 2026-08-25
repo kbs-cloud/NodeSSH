@@ -15,6 +15,8 @@ import {
   Trash2,
   CornerLeftUp,
   Copy,
+  Archive,
+  GripVertical,
 } from 'lucide-react';
 import { SFTPFileItem } from '../../types';
 import { useApp } from '../../context/AppContext';
@@ -77,15 +79,17 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
   };
 
   const handleDownload = async (file: SFTPFileItem) => {
-    showToast(`Downloading ${file.name}...`, 'info');
+    const isDir = file.type === 'directory';
+    const downloadName = isDir ? `${file.name}.zip` : file.name;
+    showToast(isDir ? `Compressing & downloading "${file.name}" as .zip...` : `Downloading ${file.name}...`, 'info');
+
     try {
       const q = new URLSearchParams({ path: file.path });
       if (profileId) q.set('profileId', profileId);
 
+      const token = localStorage.getItem('nodessh_token') || '';
       const res = await fetch(`/api/sftp/download?${q.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('nodessh_token') || ''}`,
-        },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
 
       if (!res.ok) throw new Error('Download request failed');
@@ -94,12 +98,12 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = file.name;
+      a.download = downloadName;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      showToast(`Downloaded ${file.name}`, 'success');
+      showToast(isDir ? `Downloaded directory "${downloadName}" successfully!` : `Downloaded ${file.name}`, 'success');
     } catch {
       showToast(`Failed to download ${file.name}`, 'error');
     }
@@ -159,37 +163,54 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
 
           {files.map(file => {
             const isSelected = selectedFilePath === file.path;
+            const isDir = file.type === 'directory';
 
             return (
               <tr
                 key={file.path}
+                draggable={true}
+                onDragStart={(e) => {
+                  const mimeType = isDir ? 'application/zip' : 'application/octet-stream';
+                  const downloadName = isDir ? `${file.name}.zip` : file.name;
+                  const q = new URLSearchParams({ path: file.path });
+                  if (profileId) q.set('profileId', profileId);
+                  const downloadUrl = `${window.location.origin}/api/sftp/download?${q.toString()}`;
+
+                  // Standard Chromium desktop drag-to-download format
+                  e.dataTransfer.setData('DownloadURL', `${mimeType}:${downloadName}:${downloadUrl}`);
+                  e.dataTransfer.setData('application/json', JSON.stringify({ file, profileId }));
+                  e.dataTransfer.setData('text/plain', file.path);
+                  e.dataTransfer.effectAllowed = 'copy';
+                }}
                 onClick={() => setSelectedFilePath(file.path)}
                 onDoubleClick={() => {
-                  if (file.type === 'directory') {
+                  if (isDir) {
                     onNavigate(file.path);
                   } else {
                     setEditingFile(file);
                   }
                 }}
-                className={`group transition-colors cursor-pointer ${
+                className={`group transition-colors cursor-grab active:cursor-grabbing ${
                   isSelected ? 'bg-cyan-950/40 border-l-2 border-cyan-400' : 'hover:bg-white/5'
                 }`}
+                title={isDir ? `Drag to desktop/dropzone to download "${file.name}" as .zip archive` : `Drag to download "${file.name}"`}
               >
                 {/* Name & Icon */}
                 <td className="py-1.5 pl-3 pr-2">
                   <div
                     onClick={(e) => {
-                      if (file.type === 'directory') {
+                      if (isDir) {
                         e.stopPropagation();
                         onNavigate(file.path);
                       }
                     }}
                     className="flex items-center gap-2"
                   >
+                    <GripVertical className="w-3 h-3 text-slate-600 opacity-0 group-hover:opacity-60 flex-shrink-0" />
                     {getFileIcon(file)}
                     <span
                       className={`font-mono truncate max-w-[200px] ${
-                        file.type === 'directory'
+                        isDir
                           ? 'text-cyan-300 font-medium hover:underline hover:text-cyan-200'
                           : 'text-slate-200 group-hover:text-white'
                       }`}
@@ -202,7 +223,7 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
 
                 {/* Size */}
                 <td className="py-1.5 px-2 text-slate-400 font-mono text-[11px] hidden sm:table-cell">
-                  {file.type === 'directory' ? '-' : formatSize(file.size)}
+                  {isDir ? '-' : formatSize(file.size)}
                 </td>
 
                 {/* Perms */}
@@ -232,7 +253,7 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
                 {/* Actions */}
                 <td className="py-1.5 pr-3 pl-2 text-right relative">
                   <div className="flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100">
-                    {file.type !== 'directory' && (
+                    {!isDir && (
                       <button
                         onClick={e => {
                           e.stopPropagation();
@@ -251,9 +272,9 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
                         handleDownload(file);
                       }}
                       className="p-1 rounded text-slate-400 hover:text-emerald-400 hover:bg-white/10"
-                      title="Download file"
+                      title={isDir ? 'Download entire folder as .zip archive' : 'Download file'}
                     >
-                      <Download className="w-3.5 h-3.5" />
+                      {isDir ? <Archive className="w-3.5 h-3.5 text-amber-400" /> : <Download className="w-3.5 h-3.5" />}
                     </button>
 
                     <button
@@ -278,31 +299,57 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
                           setActiveMenuFile(null);
                         }}
                       />
-                      <div className="absolute right-3 top-8 z-30 w-40 bg-[#151b30] border border-[var(--theme-border,#1e2640)] rounded-lg shadow-xl py-1 text-xs text-left">
-                        {file.type === 'directory' ? (
-                          <button
-                            onClick={e => {
-                              e.stopPropagation();
-                              onNavigate(file.path);
-                              setActiveMenuFile(null);
-                            }}
-                            className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-cyan-300"
-                          >
-                            <FolderOpen className="w-3.5 h-3.5" />
-                            <span>Open Folder</span>
-                          </button>
+                      <div className="absolute right-3 top-8 z-30 w-44 bg-[#151b30] border border-[var(--theme-border,#1e2640)] rounded-lg shadow-xl py-1 text-xs text-left">
+                        {isDir ? (
+                          <>
+                            <button
+                              onClick={e => {
+                                e.stopPropagation();
+                                onNavigate(file.path);
+                                setActiveMenuFile(null);
+                              }}
+                              className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-cyan-300"
+                            >
+                              <FolderOpen className="w-3.5 h-3.5" />
+                              <span>Open Folder</span>
+                            </button>
+                            <button
+                              onClick={e => {
+                                e.stopPropagation();
+                                handleDownload(file);
+                                setActiveMenuFile(null);
+                              }}
+                              className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-amber-300"
+                            >
+                              <Archive className="w-3.5 h-3.5 text-amber-400" />
+                              <span>Download as .ZIP</span>
+                            </button>
+                          </>
                         ) : (
-                          <button
-                            onClick={e => {
-                              e.stopPropagation();
-                              setEditingFile(file);
-                              setActiveMenuFile(null);
-                            }}
-                            className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-slate-200"
-                          >
-                            <Edit3 className="w-3.5 h-3.5 text-cyan-400" />
-                            <span>Edit in Editor</span>
-                          </button>
+                          <>
+                            <button
+                              onClick={e => {
+                                e.stopPropagation();
+                                setEditingFile(file);
+                                setActiveMenuFile(null);
+                              }}
+                              className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-slate-200"
+                            >
+                              <Edit3 className="w-3.5 h-3.5 text-cyan-400" />
+                              <span>Edit in Editor</span>
+                            </button>
+                            <button
+                              onClick={e => {
+                                e.stopPropagation();
+                                handleDownload(file);
+                                setActiveMenuFile(null);
+                              }}
+                              className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-slate-200"
+                            >
+                              <Download className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>Download File</span>
+                            </button>
+                          </>
                         )}
 
                         <button
@@ -327,18 +374,6 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
                         >
                           <Shield className="w-3.5 h-3.5 text-purple-400" />
                           <span>Permissions</span>
-                        </button>
-
-                        <button
-                          onClick={e => {
-                            e.stopPropagation();
-                            handleDownload(file);
-                            setActiveMenuFile(null);
-                          }}
-                          className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-slate-200"
-                        >
-                          <Download className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>Download</span>
                         </button>
 
                         <div className="my-1 border-t border-white/10" />
