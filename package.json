@@ -1,0 +1,31 @@
+{
+  "name": "nodessh",
+  "version": "1.0.0",
+  "description": "A modern web-based MobaXterm alternative with SSH, SFTP, Tunneling, Key Management, and Multi-user SSO",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "dev:server": "npm run dev --prefix server",
+    "dev:client": "npm run dev --prefix client",
+    "build": "npm run build --prefix client && npm run build --prefix server",
+    "start": "npm start --prefix server",
+    "install:all": "npm install && npm install --prefix server && npm install --prefix client"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "concurrently": "^9.1.2"
+  },
+  "keywords": [
+    "ssh",
+    "sftp",
+    "mobaxterm",
+    "terminal",
+    "xterm",
+    "ssh-tunnel",
+    "port-forwarding",
+    "web-terminal",
+    "sso"
+  ],
+  "author": "",
+  "license": "MIT"
+}
