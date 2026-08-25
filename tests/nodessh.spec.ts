@@ -33,6 +33,19 @@ test.describe('NodeSSH Comprehensive E2E Test Suite', () => {
       await page.click('button:has-text("Create Account")');
     }
 
+    // Open a new local shell from the empty dashboard or tab bar
+    const newShellBtn = page.locator('button:has-text("New Local Shell")').first();
+    if (await newShellBtn.isVisible()) {
+      await newShellBtn.click();
+    } else {
+      const addTabBtn = page.locator('button[title*="New Terminal Tab"]').first();
+      if (await addTabBtn.isVisible()) {
+        await addTabBtn.click();
+        const option = page.locator('button:has-text("New Local Shell")').first();
+        if (await option.isVisible()) await option.click();
+      }
+    }
+
     // Wait for terminal screen to load
     await page.waitForSelector('.xterm', { timeout: 15000 });
     await page.screenshot({ path: path.join(ARTIFACT_DIR, '01_dashboard.png') });
@@ -40,9 +53,16 @@ test.describe('NodeSSH Comprehensive E2E Test Suite', () => {
 
   test('02. Multi-Tab Terminal & Vertical / Horizontal Split Views', async ({ page }) => {
     await page.goto('/');
+    
+    // Open initial tab if none
+    const newShellBtn = page.locator('button:has-text("New Local Shell")').first();
+    if (await newShellBtn.isVisible()) {
+      await newShellBtn.click();
+    }
+
     await page.waitForSelector('.xterm', { timeout: 15000 });
 
-    // Open another terminal tab
+    // Open second terminal tab
     const addTabBtn = page.locator('button[title*="New Terminal Tab"]').first();
     if (await addTabBtn.isVisible()) {
       await addTabBtn.click();
@@ -64,6 +84,10 @@ test.describe('NodeSSH Comprehensive E2E Test Suite', () => {
 
   test('03. Broadcast / Multi-Exec Mode', async ({ page }) => {
     await page.goto('/');
+    const newShellBtn = page.locator('button:has-text("New Local Shell")').first();
+    if (await newShellBtn.isVisible()) {
+      await newShellBtn.click();
+    }
     await page.waitForSelector('.xterm', { timeout: 15000 });
 
     // Click Multi-Exec toggle button
@@ -77,6 +101,10 @@ test.describe('NodeSSH Comprehensive E2E Test Suite', () => {
 
   test('04. Dockable Side-by-Side SFTP Explorer & In-Browser Code Editor', async ({ page }) => {
     await page.goto('/');
+    const newShellBtn = page.locator('button:has-text("New Local Shell")').first();
+    if (await newShellBtn.isVisible()) {
+      await newShellBtn.click();
+    }
     await page.waitForSelector('.xterm', { timeout: 15000 });
 
     // Toggle SFTP Side Explorer

@@ -1,8 +1,9 @@
 import React from 'react';
 import { useTerminal } from '../../context/TerminalContext';
+import { useApp } from '../../context/AppContext';
 import { XtermView } from './XtermView';
 import { MultiExecBanner } from './MultiExecBanner';
-import { ArrowLeftRight } from 'lucide-react';
+import { ArrowLeftRight, Terminal, Plus, Server, Key, Network } from 'lucide-react';
 
 export const SplitTerminalContainer: React.FC = () => {
   const {
@@ -11,12 +12,63 @@ export const SplitTerminalContainer: React.FC = () => {
     splitState,
     setActiveTabId,
     swapSplitTabs,
+    addTab,
   } = useTerminal();
+
+  const { setActiveView, setIsProfileModalOpen } = useApp();
 
   if (!activeTab) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-[var(--theme-bg-dark,#070913)] text-slate-500">
-        No active terminal tab
+      <div className="flex-1 flex flex-col items-center justify-center bg-[var(--theme-bg-dark,#070913)] text-slate-400 p-8 select-none">
+        <div className="max-w-md w-full text-center space-y-6">
+          <div className="w-16 h-16 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 mx-auto shadow-lg shadow-cyan-500/10">
+            <Terminal className="w-8 h-8" />
+          </div>
+
+          <div className="space-y-1.5">
+            <h2 className="text-lg font-bold text-white tracking-wide">No Active Terminal Sessions</h2>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Connect to a remote server, start a local shell, or configure SSH tunnels to begin.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+            <button
+              onClick={() => addTab({ title: 'Local Shell' })}
+              className="flex items-center justify-center gap-2 p-3 rounded-xl bg-[#0e1222] hover:bg-[#151b30] border border-[var(--theme-border,#1e2640)] hover:border-cyan-500/50 text-white text-xs font-semibold shadow-md transition-all group"
+            >
+              <Plus className="w-4 h-4 text-cyan-400 group-hover:scale-110 transition-transform" />
+              <span>New Local Shell</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setActiveView('profiles');
+                setIsProfileModalOpen(true);
+              }}
+              className="flex items-center justify-center gap-2 p-3 rounded-xl bg-[#0e1222] hover:bg-[#151b30] border border-[var(--theme-border,#1e2640)] hover:border-cyan-500/50 text-white text-xs font-semibold shadow-md transition-all group"
+            >
+              <Server className="w-4 h-4 text-purple-400 group-hover:scale-110 transition-transform" />
+              <span>Add SSH Server</span>
+            </button>
+
+            <button
+              onClick={() => setActiveView('keys')}
+              className="flex items-center justify-center gap-2 p-3 rounded-xl bg-[#0e1222] hover:bg-[#151b30] border border-[var(--theme-border,#1e2640)] hover:border-cyan-500/50 text-slate-300 text-xs font-medium shadow-md transition-all group"
+            >
+              <Key className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
+              <span>SSH Key Vault</span>
+            </button>
+
+            <button
+              onClick={() => setActiveView('tunnels')}
+              className="flex items-center justify-center gap-2 p-3 rounded-xl bg-[#0e1222] hover:bg-[#151b30] border border-[var(--theme-border,#1e2640)] hover:border-cyan-500/50 text-slate-300 text-xs font-medium shadow-md transition-all group"
+            >
+              <Network className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
+              <span>SSH Tunnels</span>
+            </button>
+          </div>
+        </div>
       </div>
     );
   }

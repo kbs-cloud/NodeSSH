@@ -54,33 +54,13 @@ interface TerminalContextType {
 const TerminalContext = createContext<TerminalContextType | undefined>(undefined);
 
 export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [tabs, setTabs] = useState<TerminalTab[]>(() => [
-    {
-      id: 'tab-1',
-      title: 'Production Web (Ubuntu)',
-      profile: {
-        id: 'prof-1',
-        name: 'Production Web',
-        host: '192.168.1.150',
-        port: 22,
-        username: 'ubuntu',
-      },
-      status: 'connected',
-      cwd: '/home/ubuntu',
-      cols: 80,
-      rows: 24,
-      createdAt: Date.now(),
-      lastActive: Date.now(),
-      closeOnTabClose: true,
-      latencyMs: 14,
-    },
-  ]);
+  const [tabs, setTabs] = useState<TerminalTab[]>([]);
 
-  const [activeTabId, setActiveTabId] = useState<string | null>('tab-1');
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
 
   const [splitState, setSplitState] = useState<TerminalSplitState>({
     mode: 'single',
-    primaryTabId: 'tab-1',
+    primaryTabId: null,
     secondaryTabId: null,
     splitRatio: 0.5,
   });
