@@ -1,13 +1,13 @@
 import { ServerProfile, KeyVaultItem, SSHTunnel, Snippet, AppSettings, User } from '../types';
 
 const STORAGE_KEYS = {
-  PROFILES: 'nodessh_profiles',
-  KEYS: 'nodessh_keys',
-  TUNNELS: 'nodessh_tunnels',
-  SNIPPETS: 'nodessh_snippets',
-  SETTINGS: 'nodessh_settings',
-  AUTH_TOKEN: 'nodessh_token',
-  AUTH_USER: 'nodessh_user',
+  PROFILES: 'nodessh_clean_profiles',
+  KEYS: 'nodessh_clean_keys',
+  TUNNELS: 'nodessh_clean_tunnels',
+  SNIPPETS: 'nodessh_clean_snippets',
+  SETTINGS: 'nodessh_clean_settings',
+  AUTH_TOKEN: 'nodessh_clean_token',
+  AUTH_USER: 'nodessh_clean_user',
 };
 
 export const DEFAULT_PROFILES: ServerProfile[] = [];
@@ -29,17 +29,38 @@ export const DEFAULT_SETTINGS: AppSettings = {
 };
 
 class StorageService {
+  constructor() {
+    this.purgeLegacyMockStorage();
+  }
+
+  private purgeLegacyMockStorage(): void {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      const legacyKeys = [
+        'nodessh_profiles',
+        'nodessh_keys',
+        'nodessh_tunnels',
+        'nodessh_snippets',
+        'nodessh_v2_profiles',
+        'nodessh_v2_keys',
+        'nodessh_v2_tunnels',
+        'nodessh_v2_snippets',
+      ];
+      for (const k of legacyKeys) {
+        localStorage.removeItem(k);
+      }
+    } catch {}
+  }
+
   // Profiles
   getProfiles(): ServerProfile[] {
     const data = localStorage.getItem(STORAGE_KEYS.PROFILES);
-    if (!data) {
-      this.saveProfiles(DEFAULT_PROFILES);
-      return DEFAULT_PROFILES;
-    }
+    if (!data) return [];
     try {
-      return JSON.parse(data);
+      const items: ServerProfile[] = JSON.parse(data);
+      return items.filter(p => !p.id.startsWith('prof-'));
     } catch {
-      return DEFAULT_PROFILES;
+      return [];
     }
   }
 
@@ -50,14 +71,12 @@ class StorageService {
   // Keys
   getKeys(): KeyVaultItem[] {
     const data = localStorage.getItem(STORAGE_KEYS.KEYS);
-    if (!data) {
-      this.saveKeys(DEFAULT_KEYS);
-      return DEFAULT_KEYS;
-    }
+    if (!data) return [];
     try {
-      return JSON.parse(data);
+      const items: KeyVaultItem[] = JSON.parse(data);
+      return items.filter(k => !k.id.startsWith('key-'));
     } catch {
-      return DEFAULT_KEYS;
+      return [];
     }
   }
 
@@ -68,14 +87,12 @@ class StorageService {
   // Tunnels
   getTunnels(): SSHTunnel[] {
     const data = localStorage.getItem(STORAGE_KEYS.TUNNELS);
-    if (!data) {
-      this.saveTunnels(DEFAULT_TUNNELS);
-      return DEFAULT_TUNNELS;
-    }
+    if (!data) return [];
     try {
-      return JSON.parse(data);
+      const items: SSHTunnel[] = JSON.parse(data);
+      return items.filter(t => !t.id.startsWith('tun-'));
     } catch {
-      return DEFAULT_TUNNELS;
+      return [];
     }
   }
 
@@ -86,14 +103,12 @@ class StorageService {
   // Snippets
   getSnippets(): Snippet[] {
     const data = localStorage.getItem(STORAGE_KEYS.SNIPPETS);
-    if (!data) {
-      this.saveSnippets(DEFAULT_SNIPPETS);
-      return DEFAULT_SNIPPETS;
-    }
+    if (!data) return [];
     try {
-      return JSON.parse(data);
+      const items: Snippet[] = JSON.parse(data);
+      return items.filter(s => !s.id.startsWith('snip-'));
     } catch {
-      return DEFAULT_SNIPPETS;
+      return [];
     }
   }
 

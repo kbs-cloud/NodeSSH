@@ -19,12 +19,17 @@ server/dist/
 id_rsa
 id_ed25519
 
-# Data and database files
+# Data, database files & exports
 data/
+server/data/
 *.sqlite
 *.sqlite3
 *.db
 *.log
+nodessh-profiles.json
+nodessh-keys.json
+nodessh-export*.json
+*.mxtsessions
 
 # Logs
 npm-debug.log*

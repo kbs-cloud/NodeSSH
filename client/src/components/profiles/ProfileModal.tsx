@@ -49,20 +49,20 @@ export const ProfileModal: React.FC = () => {
       setTagsString(editingProfile.tags.join(', '));
       setColorTag(editingProfile.colorTag || '#00f0ff');
     } else {
-      setName('Ubuntu Server');
-      setFolder('Production');
-      setHost('192.168.1.150');
+      setName('');
+      setFolder('General');
+      setHost('');
       setPort(22);
-      setUsername('ubuntu');
+      setUsername('');
       setAuthType('password');
       setPassword('');
       setKeyId(keys.length > 0 ? keys[0].id : '');
       setJumpHostId('');
-      setDefaultPath('/home/ubuntu');
+      setDefaultPath('');
       setStartupCommand('');
       setCloseSessionOnExit(true);
       setKeepaliveInterval(30);
-      setTagsString('Production, Ubuntu');
+      setTagsString('');
       setColorTag('#00f0ff');
     }
   }, [editingProfile, keys, isProfileModalOpen]);

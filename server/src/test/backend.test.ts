@@ -18,6 +18,7 @@ import { tunnelManager } from '../tunnels/tunnel-manager';
 import { app, server } from '../index';
 
 describe('NodeSSH Backend Test Suite', () => {
+  let testUserId: string = '';
 
   describe('1. Key Vault & Security', () => {
     it('should encrypt and decrypt private keys using AES-256-GCM', () => {
@@ -56,8 +57,6 @@ describe('NodeSSH Backend Test Suite', () => {
   });
 
   describe('2. Database Layer & Scoped Repositories', () => {
-    let testUserId: string;
-
     it('should initialize database schema cleanly', () => {
       const db = getDb();
       assert.ok(db);
@@ -354,6 +353,16 @@ AWS-Database=#109#0%db.internal.net%22%dbadmin%%-1%-1%%%22%%0%0%0%%-1%-1
   });
 
   after(() => {
+    try {
+      const db = getDb();
+      if (testUserId) {
+        db.prepare('DELETE FROM tunnels WHERE user_id = ?').run(testUserId);
+        db.prepare('DELETE FROM profiles WHERE user_id = ?').run(testUserId);
+        db.prepare('DELETE FROM ssh_keys WHERE user_id = ?').run(testUserId);
+        db.prepare('DELETE FROM snippets WHERE user_id = ?').run(testUserId);
+        db.prepare('DELETE FROM users WHERE id = ?').run(testUserId);
+      }
+    } catch {}
     closeDb();
     server.close();
   });

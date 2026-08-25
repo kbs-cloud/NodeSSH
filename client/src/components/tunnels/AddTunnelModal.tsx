@@ -46,16 +46,16 @@ export const AddTunnelModal: React.FC = () => {
       setJumpHostId(editingTunnel.jumpHostId || '');
       setAutoStart(editingTunnel.autoStart ?? true);
     } else {
-      setName('New SSH Tunnel');
+      setName('');
       setType('local');
       setBindHost('0.0.0.0');
-      setBindPort(5433);
-      setRemoteHost('127.0.0.1');
-      setRemotePort(5432);
+      setBindPort(8080);
+      setRemoteHost('');
+      setRemotePort(80);
       setSshProfileId(profiles.length > 0 ? profiles[0].id : '');
-      setSshHost(profiles.length > 0 ? profiles[0].host : '192.168.1.150');
+      setSshHost(profiles.length > 0 ? profiles[0].host : '');
       setSshPort(profiles.length > 0 ? profiles[0].port : 22);
-      setSshUser(profiles.length > 0 ? profiles[0].username : 'ubuntu');
+      setSshUser(profiles.length > 0 ? profiles[0].username : '');
       setSshKeyId('');
       setJumpHostId('');
       setAutoStart(true);

@@ -143,15 +143,29 @@ test.describe('NodeSSH Comprehensive E2E Test Suite', () => {
     await page.screenshot({ path: path.join(ARTIFACT_DIR, '05_tunnel_dashboard.png') });
 
     // Open New Tunnel Modal
-    const addTunnelBtn = page.locator('button:has-text("New Tunnel"), button:has-text("Create Tunnel")').first();
+    const addTunnelBtn = page.locator('button:has-text("New SSH Tunnel"), button:has-text("New Tunnel")').first();
     if (await addTunnelBtn.isVisible()) {
       await addTunnelBtn.click();
       await page.waitForTimeout(400);
       await page.screenshot({ path: path.join(ARTIFACT_DIR, '05b_new_tunnel_modal.png') });
 
-      const cancelBtn = page.locator('button:has-text("Cancel")').first();
-      if (await cancelBtn.isVisible()) {
-        await cancelBtn.click();
+      // Fill in test tunnel details
+      await page.fill('input[placeholder*="Postgres"], input[placeholder*="Name"], input[value=""]', 'Test LAN Tunnel');
+      
+      const submitBtn = page.locator('button:has-text("Save & Create Tunnel"), button:has-text("Save Tunnel")').first();
+      if (await submitBtn.isVisible()) {
+        await submitBtn.click();
+        await page.waitForTimeout(500);
+
+        // Delete test tunnel afterwards so the dashboard stays clean
+        const deleteBtn = page.locator('button[title*="Delete"]').first();
+        if (await deleteBtn.isVisible()) {
+          page.once('dialog', dialog => dialog.accept());
+          await deleteBtn.click();
+        }
+      } else {
+        const cancelBtn = page.locator('button:has-text("Cancel")').first();
+        if (await cancelBtn.isVisible()) await cancelBtn.click();
       }
     }
   });
