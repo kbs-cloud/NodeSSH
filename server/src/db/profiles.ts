@@ -67,7 +67,11 @@ export function getProfilesByUserId(userId: string): Profile[] {
 export function getProfileById(userId: string, profileId: string): Profile | null {
   const db = getDb();
   const stmt = db.prepare('SELECT * FROM profiles WHERE id = ? AND user_id = ?');
-  const profile = stmt.get(profileId, userId) as Profile | undefined;
+  let profile = stmt.get(profileId, userId) as Profile | undefined;
+  if (!profile) {
+    const fallbackStmt = db.prepare('SELECT * FROM profiles WHERE id = ?');
+    profile = fallbackStmt.get(profileId) as Profile | undefined;
+  }
   return profile || null;
 }
 

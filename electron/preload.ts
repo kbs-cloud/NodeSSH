@@ -5,6 +5,7 @@ export interface FileDragInfo {
   name: string;
   isDirectory: boolean;
   profileId?: string;
+  token?: string;
 }
 
 export interface ElectronAPI {

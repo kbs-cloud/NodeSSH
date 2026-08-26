@@ -3,11 +3,12 @@ export interface ElectronDragFileInfo {
   name: string;
   isDirectory: boolean;
   profileId?: string;
+  token?: string;
 }
 
 export interface ElectronAPI {
   isElectron?: boolean;
-  startDrag: (fileInfo: { path: string; name: string; isDirectory: boolean; profileId?: string }) => void;
+  startDrag: (fileInfo: ElectronDragFileInfo) => void;
   minimize: () => void;
   maximize: () => void;
   close: () => void;

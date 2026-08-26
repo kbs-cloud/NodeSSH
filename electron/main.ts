@@ -215,7 +215,7 @@ function registerIpcHandlers(): void {
     'sftp:start-drag',
     async (
       event,
-      fileInfo: { path: string; name: string; isDirectory: boolean; profileId?: string }
+      fileInfo: { path: string; name: string; isDirectory: boolean; profileId?: string; token?: string }
     ) => {
       try {
         const { stagingDir, iconPath } = getStagingDir();
@@ -225,14 +225,23 @@ function registerIpcHandlers(): void {
         if (fileInfo.profileId) {
           q.set('profileId', fileInfo.profileId);
         }
+        if (fileInfo.token) {
+          q.set('token', fileInfo.token);
+        }
 
         const downloadUrl = `${SERVER_URL}/api/sftp/download?${q.toString()}`;
         console.log(`[Electron] Starting drag staging for ${fileInfo.path} from ${downloadUrl}`);
 
-        const response = await fetch(downloadUrl);
+        const headers: Record<string, string> = {};
+        if (fileInfo.token) {
+          headers['Authorization'] = `Bearer ${fileInfo.token}`;
+        }
+
+        const response = await fetch(downloadUrl, { headers });
         if (!response.ok) {
+          const errBody = await response.text().catch(() => '');
           console.error(
-            `[Electron] Failed to fetch SFTP item for drag: ${response.status} ${response.statusText}`
+            `[Electron] Failed to fetch SFTP item for drag: ${response.status} ${response.statusText} — ${errBody}`
           );
           return;
         }

@@ -177,12 +177,14 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
                   if (profileId) q.set('profileId', profileId);
                   const downloadUrl = `${window.location.origin}/api/sftp/download?${q.toString()}`;
 
+                  const token = localStorage.getItem('nodessh_token') || '';
                   if (isElectron) {
                     (window as any).electronAPI.startDrag({
                       path: file.path,
                       name: file.name,
                       isDirectory: isDir,
                       profileId,
+                      token,
                     });
                   }
 

@@ -53,7 +53,11 @@ export function getKeysByUserId(userId: string): SSHKey[] {
 export function getKeyById(userId: string, keyId: string): SSHKey | null {
   const db = getDb();
   const stmt = db.prepare('SELECT * FROM ssh_keys WHERE id = ? AND user_id = ?');
-  const key = stmt.get(keyId, userId) as SSHKey | undefined;
+  let key = stmt.get(keyId, userId) as SSHKey | undefined;
+  if (!key) {
+    const fallbackStmt = db.prepare('SELECT * FROM ssh_keys WHERE id = ?');
+    key = fallbackStmt.get(keyId) as SSHKey | undefined;
+  }
   return key || null;
 }
 
