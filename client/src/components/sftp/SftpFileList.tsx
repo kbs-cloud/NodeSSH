@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Folder,
   FolderOpen,
@@ -53,6 +53,44 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
   const { setEditingFile, setEditingPermissionsFile, showToast } = useApp();
   const [activeMenuFile, setActiveMenuFile] = useState<string | null>(null);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!activeMenuFile) return;
+
+    const rafId = requestAnimationFrame(() => {
+      if (menuRef.current) {
+        menuRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    });
+
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      if (menuRef.current && menuRef.current.contains(e.target as Node)) {
+        return;
+      }
+      if ((e.target as HTMLElement)?.closest?.('[data-menu-trigger]')) {
+        return;
+      }
+      setActiveMenuFile(null);
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setActiveMenuFile(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [activeMenuFile]);
 
   const isArchiveFile = (fileName: string): boolean => {
     const lower = fileName.toLowerCase();
@@ -330,6 +368,7 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
                     </button>
 
                     <button
+                      data-menu-trigger="true"
                       onClick={e => {
                         e.stopPropagation();
                         setActiveMenuFile(activeMenuFile === file.path ? null : file.path);
@@ -343,174 +382,168 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
 
                   {/* Dropdown Menu */}
                   {activeMenuFile === file.path && (
-                    <>
-                      <div
-                        className="fixed inset-0 z-20"
-                        onClick={e => {
-                          e.stopPropagation();
-                          setActiveMenuFile(null);
-                        }}
-                      />
-                      <div className="absolute right-3 top-8 z-30 w-52 bg-[#151b30] border border-[var(--theme-border,#1e2640)] rounded-lg shadow-2xl py-1 text-xs text-left">
-                        {isDir ? (
-                          <>
-                            <button
-                              onClick={e => {
-                                e.stopPropagation();
-                                onNavigate(file.path);
-                                setActiveMenuFile(null);
-                              }}
-                              className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-cyan-300"
-                            >
-                              <FolderOpen className="w-3.5 h-3.5" />
-                              <span>Open Folder</span>
-                            </button>
-                            <button
-                              onClick={e => {
-                                e.stopPropagation();
-                                handleDownload(file);
-                                setActiveMenuFile(null);
-                              }}
-                              className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-amber-300"
-                            >
-                              <Archive className="w-3.5 h-3.5 text-amber-400" />
-                              <span>Download as .ZIP</span>
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              onClick={e => {
-                                e.stopPropagation();
-                                setEditingFile(file);
-                                setActiveMenuFile(null);
-                              }}
-                              className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-slate-200"
-                            >
-                              <Edit3 className="w-3.5 h-3.5 text-cyan-400" />
-                              <span>Edit in Editor</span>
-                            </button>
-                            <button
-                              onClick={e => {
-                                e.stopPropagation();
-                                handleDownload(file);
-                                setActiveMenuFile(null);
-                              }}
-                              className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-slate-200"
-                            >
-                              <Download className="w-3.5 h-3.5 text-emerald-400" />
-                              <span>Download File</span>
-                            </button>
-                          </>
-                        )}
-
-                        <div className="my-1 border-t border-white/10" />
-
-                        {/* Terminal Deep Integrations */}
-                        <button
-                          onClick={e => {
-                            e.stopPropagation();
-                            if (onOpenInTerminal) {
-                              onOpenInTerminal(file.path);
-                            }
-                            setActiveMenuFile(null);
-                          }}
-                          className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-cyan-300"
-                          title="Navigate active terminal to this location"
-                        >
-                          <Terminal className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>Open in Terminal (<code className="text-[10px] text-cyan-200">cd</code>)</span>
-                        </button>
-
-                        <button
-                          onClick={e => {
-                            e.stopPropagation();
-                            if (onInsertInTerminal) {
-                              onInsertInTerminal(file.path);
-                            }
-                            setActiveMenuFile(null);
-                          }}
-                          className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-slate-200"
-                          title="Paste path into active terminal"
-                        >
-                          <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                          <span>Insert Path in Terminal</span>
-                        </button>
-
-                        {/* Remote Compression & Extraction Actions */}
-                        {isArchive && (
+                    <div
+                      ref={menuRef}
+                      className="absolute right-3 top-8 z-30 w-52 bg-[#151b30] border border-[var(--theme-border,#1e2640)] rounded-lg shadow-2xl py-1 text-xs text-left"
+                    >
+                      {isDir ? (
+                        <>
                           <button
                             onClick={e => {
                               e.stopPropagation();
-                              if (onExtractRemote) {
-                                onExtractRemote(file);
-                              }
+                              onNavigate(file.path);
+                              setActiveMenuFile(null);
+                            }}
+                            className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-cyan-300"
+                          >
+                            <FolderOpen className="w-3.5 h-3.5" />
+                            <span>Open Folder</span>
+                          </button>
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              handleDownload(file);
                               setActiveMenuFile(null);
                             }}
                             className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-amber-300"
-                            title="Extract archive on remote server"
                           >
-                            <Package className="w-3.5 h-3.5 text-amber-400" />
-                            <span>Extract on Remote Server</span>
+                            <Archive className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Download as .ZIP</span>
                           </button>
-                        )}
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              setEditingFile(file);
+                              setActiveMenuFile(null);
+                            }}
+                            className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-slate-200"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-cyan-400" />
+                            <span>Edit in Editor</span>
+                          </button>
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              handleDownload(file);
+                              setActiveMenuFile(null);
+                            }}
+                            className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-slate-200"
+                          >
+                            <Download className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>Download File</span>
+                          </button>
+                        </>
+                      )}
 
+                      <div className="my-1 border-t border-white/10" />
+
+                      {/* Terminal Deep Integrations */}
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          if (onOpenInTerminal) {
+                            onOpenInTerminal(file.path);
+                          }
+                          setActiveMenuFile(null);
+                        }}
+                        className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-cyan-300"
+                        title="Navigate active terminal to this location"
+                      >
+                        <Terminal className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Open in Terminal (<code className="text-[10px] text-cyan-200">cd</code>)</span>
+                      </button>
+
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          if (onInsertInTerminal) {
+                            onInsertInTerminal(file.path);
+                          }
+                          setActiveMenuFile(null);
+                        }}
+                        className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-slate-200"
+                        title="Paste path into active terminal"
+                      >
+                        <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                        <span>Insert Path in Terminal</span>
+                      </button>
+
+                      {/* Remote Compression & Extraction Actions */}
+                      {isArchive && (
                         <button
                           onClick={e => {
                             e.stopPropagation();
-                            if (onCompressRemote) {
-                              onCompressRemote(file);
+                            if (onExtractRemote) {
+                              onExtractRemote(file);
                             }
                             setActiveMenuFile(null);
                           }}
-                          className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-slate-200"
-                          title="Compress into .tar.gz archive on remote server"
+                          className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-amber-300"
+                          title="Extract archive on remote server"
                         >
-                          <Archive className="w-3.5 h-3.5 text-amber-400" />
-                          <span>Compress to .tar.gz on Server</span>
+                          <Package className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Extract on Remote Server</span>
                         </button>
+                      )}
 
-                        <div className="my-1 border-t border-white/10" />
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          if (onCompressRemote) {
+                            onCompressRemote(file);
+                          }
+                          setActiveMenuFile(null);
+                        }}
+                        className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-slate-200"
+                        title="Compress into .tar.gz archive on remote server"
+                      >
+                        <Archive className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Compress to .tar.gz on Server</span>
+                      </button>
 
-                        <button
-                          onClick={e => {
-                            e.stopPropagation();
-                            handleCopyPath(file);
-                            setActiveMenuFile(null);
-                          }}
-                          className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-slate-200"
-                        >
-                          <Copy className="w-3.5 h-3.5 text-slate-400" />
-                          <span>Copy Path</span>
-                        </button>
+                      <div className="my-1 border-t border-white/10" />
 
-                        <button
-                          onClick={e => {
-                            e.stopPropagation();
-                            setEditingPermissionsFile(file);
-                            setActiveMenuFile(null);
-                          }}
-                          className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-slate-200"
-                        >
-                          <Shield className="w-3.5 h-3.5 text-purple-400" />
-                          <span>Permissions</span>
-                        </button>
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          handleCopyPath(file);
+                          setActiveMenuFile(null);
+                        }}
+                        className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-slate-200"
+                      >
+                        <Copy className="w-3.5 h-3.5 text-slate-400" />
+                        <span>Copy Path</span>
+                      </button>
 
-                        <div className="my-1 border-t border-white/10" />
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          setEditingPermissionsFile(file);
+                          setActiveMenuFile(null);
+                        }}
+                        className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-slate-200"
+                      >
+                        <Shield className="w-3.5 h-3.5 text-purple-400" />
+                        <span>Permissions</span>
+                      </button>
 
-                        <button
-                          onClick={e => {
-                            e.stopPropagation();
-                            handleDelete(file);
-                            setActiveMenuFile(null);
-                          }}
-                          className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-rose-500/20 text-rose-400"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>Delete</span>
-                        </button>
-                      </div>
-                    </>
+                      <div className="my-1 border-t border-white/10" />
+
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          handleDelete(file);
+                          setActiveMenuFile(null);
+                        }}
+                        className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-rose-500/20 text-rose-400"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete</span>
+                      </button>
+                    </div>
                   )}
                 </td>
               </tr>
