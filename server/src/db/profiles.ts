@@ -21,12 +21,12 @@ export function createProfile(userId: string, data: ProfileCreateDTO): Profile {
   const stmt = db.prepare(`
     INSERT INTO profiles (
       id, user_id, name, host, port, username, auth_type, password,
-      key_id, passphrase, jump_host_id, initial_dir, startup_command,
+      key_id, passphrase, jump_host_id, initial_dir, startup_command, sftp_command,
       keepalive_interval, close_on_exit, tags, group_name, terminal_theme,
       created_at, updated_at
     ) VALUES (
       ?, ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?,
       ?, ?
     )
@@ -46,6 +46,7 @@ export function createProfile(userId: string, data: ProfileCreateDTO): Profile {
     data.jump_host_id || null,
     data.initial_dir || null,
     data.startup_command || null,
+    data.sftp_command || null,
     keepalive,
     closeOnExit,
     tagsStr,
@@ -124,6 +125,10 @@ export function updateProfile(userId: string, profileId: string, updates: Profil
     fields.push('startup_command = ?');
     values.push(updates.startup_command);
   }
+  if (updates.sftp_command !== undefined) {
+    fields.push('sftp_command = ?');
+    values.push(updates.sftp_command);
+  }
   if (updates.keepalive_interval !== undefined) {
     fields.push('keepalive_interval = ?');
     values.push(updates.keepalive_interval);
@@ -199,6 +204,7 @@ export function toProfileDTO(p: Profile): any {
     jumpHostId: p.jump_host_id || undefined,
     defaultPath: p.initial_dir || undefined,
     startupCommand: p.startup_command || undefined,
+    sftpCommand: p.sftp_command || undefined,
     closeSessionOnExit: p.close_on_exit !== 0,
     keepaliveInterval: p.keepalive_interval,
     folder: p.group_name || 'General',

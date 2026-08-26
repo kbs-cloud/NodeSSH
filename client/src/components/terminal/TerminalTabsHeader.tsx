@@ -23,6 +23,7 @@ export const TerminalTabsHeader: React.FC = () => {
     setActiveTabId,
     addTab,
     closeTab,
+    reconnectTab,
     duplicateTab,
     renameTab,
     pinTab,
@@ -62,7 +63,26 @@ export const TerminalTabsHeader: React.FC = () => {
   return (
     <div className="flex items-center justify-between bg-[var(--theme-bg-surface,#0e1222)] border-b border-[var(--theme-border,#1e2640)] px-2 select-none h-10 relative">
       {/* Tabs strip */}
-      <div className="flex items-center gap-1 overflow-x-auto flex-1 h-full py-1 pr-2 no-scrollbar">
+      <div
+        className="flex items-center gap-1 overflow-x-auto flex-1 h-full py-1 pr-2 no-scrollbar"
+        onDoubleClick={(e) => {
+          if (e.target === e.currentTarget) {
+            setActiveTabId(null);
+          }
+        }}
+      >
+        {/* Launcher Tab shown when on Launcher page or when no tabs are open */}
+        {(activeTabId === null || tabs.length === 0) && (
+          <div
+            onClick={() => setActiveTabId(null)}
+            className="flex items-center gap-2 px-3 py-1 text-xs rounded-t-md cursor-pointer h-full border-t-2 bg-[var(--theme-bg-dark,#070913)] text-cyan-300 border-[var(--theme-primary,#00f0ff)] font-semibold shadow-sm shrink-0"
+            title="Session Launcher (Home)"
+          >
+            <Plus className="w-3.5 h-3.5 text-cyan-400" />
+            <span>New Session</span>
+          </div>
+        )}
+
         {sortedTabs.map(tab => {
           const isActive = tab.id === activeTabId;
           const isSecondary = tab.id === splitState.secondaryTabId;
@@ -78,7 +98,7 @@ export const TerminalTabsHeader: React.FC = () => {
             <div
               key={tab.id}
               onClick={() => setActiveTabId(tab.id)}
-              className={`group relative flex items-center gap-2 px-3 py-1 text-xs rounded-t-md transition-all cursor-pointer h-full border-t-2 ${
+              className={`group relative flex items-center gap-2 px-3 py-1 text-xs rounded-t-md transition-all cursor-pointer h-full border-t-2 shrink-0 ${
                 isActive
                   ? 'bg-[var(--theme-bg-dark,#070913)] text-white border-[var(--theme-primary,#00f0ff)] font-medium shadow-sm'
                   : isSecondary
@@ -86,10 +106,27 @@ export const TerminalTabsHeader: React.FC = () => {
                   : 'bg-transparent text-slate-400 border-transparent hover:text-slate-200 hover:bg-white/5'
               }`}
             >
-              {/* Status Indicator */}
-              <span
-                className={`w-2 h-2 rounded-full ${statusColors[tab.status] || 'bg-slate-500'}`}
-                title={`Status: ${tab.status}`}
+              {/* Status Indicator (Clickable to Reconnect if Disconnected) */}
+              <button
+                type="button"
+                onClick={e => {
+                  if (tab.status === 'disconnected' || tab.status === 'error') {
+                    e.stopPropagation();
+                    reconnectTab(tab.id);
+                  }
+                }}
+                className={`w-2 h-2 rounded-full transition-all shrink-0 ${
+                  statusColors[tab.status] || 'bg-slate-500'
+                } ${
+                  tab.status === 'disconnected' || tab.status === 'error'
+                    ? 'hover:scale-150 cursor-pointer ring-1 ring-white/30 hover:ring-cyan-400'
+                    : ''
+                }`}
+                title={
+                  tab.status === 'disconnected' || tab.status === 'error'
+                    ? `Session ${tab.status} — Click to reconnect (or press R in terminal)`
+                    : `Status: ${tab.status}`
+                }
               />
 
               {/* Tab Title or Input */}
@@ -120,32 +157,36 @@ export const TerminalTabsHeader: React.FC = () => {
                 </span>
               )}
 
-              {/* Action Buttons: Pin, Duplicate, Close */}
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-1">
-                {/* Pin tab */}
-                <button
-                  onClick={e => {
-                    e.stopPropagation();
-                    pinTab(tab.id);
-                  }}
-                  className={`p-0.5 rounded hover:text-white ${
-                    tab.isPinned ? 'text-amber-400' : 'text-slate-400 hover:bg-white/10'
-                  }`}
-                  title={tab.isPinned ? 'Unpin tab' : 'Pin tab'}
-                >
-                  {tab.isPinned ? <PinOff className="w-3 h-3" /> : <Pin className="w-3 h-3" />}
-                </button>
-
+              {/* Action Buttons: Duplicate, Pin, Close */}
+              <div
+                className={`flex items-center gap-0.5 ml-1 transition-opacity ${
+                  isActive ? 'opacity-80 hover:opacity-100' : 'opacity-0 group-hover:opacity-100'
+                }`}
+              >
                 {/* Duplicate tab */}
                 <button
                   onClick={e => {
                     e.stopPropagation();
                     duplicateTab(tab.id);
                   }}
-                  className="p-0.5 rounded hover:text-white hover:bg-white/10"
-                  title="Duplicate tab"
+                  className="p-1 rounded text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/20 transition-colors"
+                  title="Duplicate session (inserts directly after this session)"
                 >
                   <Copy className="w-3 h-3" />
+                </button>
+
+                {/* Pin tab */}
+                <button
+                  onClick={e => {
+                    e.stopPropagation();
+                    pinTab(tab.id);
+                  }}
+                  className={`p-1 rounded transition-colors ${
+                    tab.isPinned ? 'text-amber-400 hover:text-amber-300' : 'text-slate-400 hover:text-white hover:bg-white/10'
+                  }`}
+                  title={tab.isPinned ? 'Unpin tab' : 'Pin tab'}
+                >
+                  {tab.isPinned ? <PinOff className="w-3 h-3" /> : <Pin className="w-3 h-3" />}
                 </button>
 
                 {/* Close Tab */}
@@ -154,7 +195,7 @@ export const TerminalTabsHeader: React.FC = () => {
                     e.stopPropagation();
                     closeTab(tab.id);
                   }}
-                  className="p-0.5 rounded hover:text-rose-400 hover:bg-rose-500/10"
+                  className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-rose-500/15 transition-colors"
                   title="Close tab (kill session)"
                 >
                   <X className="w-3 h-3" />
@@ -163,30 +204,42 @@ export const TerminalTabsHeader: React.FC = () => {
             </div>
           );
         })}
+
+        {/* Quick New Tab button inside strip if on an active tab */}
+        {activeTabId !== null && tabs.length > 0 && (
+          <button
+            onClick={() => setActiveTabId(null)}
+            className="flex items-center gap-1 px-2 py-1 text-xs text-slate-400 hover:text-cyan-300 hover:bg-white/5 rounded transition-colors shrink-0"
+            title="Open Session Launcher (Ctrl+Shift+T)"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
 
       {/* Add Tab Button & Dropdown (Positioned outside overflow container) */}
       <div className="relative flex items-center bg-[#070913]/60 rounded border border-white/10 mx-1.5 my-1 shrink-0">
         <button
           onClick={() => {
-            if (activeTabId) {
-              duplicateTab(activeTabId);
-            } else if (profiles.length > 0) {
-              addTab({ profile: profiles[0] });
+            if (activeTabId !== null) {
+              setActiveTabId(null);
             } else {
-              addTab();
+              setIsAddMenuOpen(!isAddMenuOpen);
             }
           }}
-          className="flex items-center p-1.5 hover:bg-white/10 text-slate-300 hover:text-cyan-400 transition-colors"
-          title={activeTabId ? "Duplicate Current Session (+)" : "New Terminal Tab (+)"}
+          className={`flex items-center gap-1 px-2 py-1 hover:bg-white/10 transition-colors text-xs font-semibold ${
+            activeTabId === null ? 'text-cyan-300 bg-cyan-500/10' : 'text-slate-300 hover:text-cyan-400'
+          }`}
+          title="Open Session Launcher / New Session"
         >
           <Plus className="w-4 h-4" />
+          <span className="hidden md:inline text-[11px]">New Session</span>
         </button>
 
         <button
           onClick={() => setIsAddMenuOpen(!isAddMenuOpen)}
           className="flex items-center p-1.5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors border-l border-white/10"
-          title="Open Other Profile or Shell"
+          title="Quick Connect or Select Profile"
         >
           <ChevronDown className="w-3 h-3 opacity-70" />
         </button>
@@ -194,24 +247,17 @@ export const TerminalTabsHeader: React.FC = () => {
         {isAddMenuOpen && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setIsAddMenuOpen(false)} />
-            <div className="absolute top-9 left-0 z-50 w-64 p-1.5 bg-[#0e1222] border border-[var(--theme-border,#1e2640)] rounded-lg shadow-2xl text-xs space-y-1">
-              {activeTabId && (
-                <button
-                  onClick={() => {
-                    duplicateTab(activeTabId);
-                    setIsAddMenuOpen(false);
-                  }}
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left rounded-md hover:bg-cyan-500/10 text-cyan-300 font-medium"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  <div className="truncate">
-                    <div>Duplicate Current Session</div>
-                    <div className="text-[10px] text-cyan-500/70 font-mono truncate">
-                      {tabs.find(t => t.id === activeTabId)?.title}
-                    </div>
-                  </div>
-                </button>
-              )}
+            <div className="absolute top-9 right-0 sm:left-0 sm:right-auto z-50 w-64 p-1.5 bg-[#0e1222] border border-[var(--theme-border,#1e2640)] rounded-lg shadow-2xl text-xs space-y-1">
+              <button
+                onClick={() => {
+                  setActiveTabId(null);
+                  setIsAddMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left rounded-md hover:bg-cyan-500/10 text-cyan-300 font-medium"
+              >
+                <Plus className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Open Session Launcher (Home)</span>
+              </button>
 
               <button
                 onClick={() => {
@@ -223,6 +269,24 @@ export const TerminalTabsHeader: React.FC = () => {
                 <Plus className="w-3.5 h-3.5 text-purple-400" />
                 <span>New Local Shell</span>
               </button>
+
+              {activeTabId && (
+                <button
+                  onClick={() => {
+                    duplicateTab(activeTabId);
+                    setIsAddMenuOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left rounded-md hover:bg-white/10 text-slate-300 font-medium"
+                >
+                  <Copy className="w-3.5 h-3.5 text-slate-400" />
+                  <div className="truncate">
+                    <div>Duplicate Current Session</div>
+                    <div className="text-[10px] text-slate-500 font-mono truncate">
+                      {tabs.find(t => t.id === activeTabId)?.title}
+                    </div>
+                  </div>
+                </button>
+              )}
 
               <div className="my-1 border-t border-white/10" />
 

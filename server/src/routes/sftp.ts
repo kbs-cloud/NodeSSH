@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import multer from 'multer';
+import { v4 as uuidv4 } from 'uuid';
 import { requireAuth, AuthenticatedRequest } from '../auth/middleware';
 import { getProfilesByUserId } from '../db/profiles';
 import {
@@ -13,11 +14,16 @@ import {
   sftpRename,
   sftpChmod,
   sftpStreamDirectoryAsZip,
+  sftpRemoteExtract,
+  sftpRemoteCompress,
 } from '../ssh/sftp-service';
 import path from 'path';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } }); // 100MB
+
+// Active transfer tracking
+export const activeTransfers = new Map<string, { abort: () => void; startTime: number }>();
 
 router.use(requireAuth);
 
@@ -249,12 +255,42 @@ router.post('/upload', upload.single('file'), async (req: AuthenticatedRequest, 
 // Download file or entire directory as ZIP
 router.get('/download', async (req: AuthenticatedRequest, res: Response) => {
   let session: any;
+  const transferId = (req.query.transferId as string) || uuidv4();
+  const abortController = new AbortController();
+
+  let cleanedUp = false;
+  const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    activeTransfers.delete(transferId);
+    if (session) {
+      session.close();
+      session = null;
+    }
+  };
+
+  activeTransfers.set(transferId, {
+    abort: () => {
+      abortController.abort();
+      cleanup();
+    },
+    startTime: Date.now(),
+  });
+
+  req.on('close', () => {
+    if (!res.writableEnded) {
+      abortController.abort();
+    }
+    cleanup();
+  });
+
   try {
     const userId = req.user!.userId;
     const profileId = resolveProfileId(userId, req.query.profileId as string);
     const remotePath = req.query.path as string;
 
     if (!remotePath) {
+      cleanup();
       res.status(400).json({ error: 'path is required' });
       return;
     }
@@ -269,35 +305,133 @@ router.get('/download', async (req: AuthenticatedRequest, res: Response) => {
       const zipFilename = `${basename}.zip`;
       res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"; filename*=UTF-8''${encodeURIComponent(zipFilename)}`);
       res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('X-Transfer-Id', transferId);
 
-      await sftpStreamDirectoryAsZip(session.sftp, remotePath, res);
-      if (session) session.close();
+      await sftpStreamDirectoryAsZip(session.sftp, remotePath, res, {
+        signal: abortController.signal,
+      });
+      cleanup();
     } else {
       // Single file download -> Stream raw bytes
       res.setHeader('Content-Disposition', `attachment; filename="${basename}"; filename*=UTF-8''${encodeURIComponent(basename)}`);
       res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Length', stat.size.toString());
+      res.setHeader('X-Transfer-Id', transferId);
 
       const stream = session.sftp.createReadStream(remotePath);
 
+      const onAbort = () => {
+        try { stream.destroy(); } catch {}
+      };
+      abortController.signal.addEventListener('abort', onAbort, { once: true });
+
       stream.on('error', (err: any) => {
+        abortController.signal.removeEventListener('abort', onAbort);
+        cleanup();
         if (!res.headersSent) {
           res.status(500).json({ error: `Download error: ${err.message}` });
         }
-        if (session) session.close();
       });
 
       stream.on('close', () => {
-        if (session) session.close();
+        abortController.signal.removeEventListener('abort', onAbort);
+        cleanup();
+      });
+
+      stream.on('end', () => {
+        abortController.signal.removeEventListener('abort', onAbort);
+        cleanup();
       });
 
       stream.pipe(res);
     }
   } catch (err: any) {
-    if (session) session.close();
+    cleanup();
     if (!res.headersSent) {
       res.status(500).json({ error: err.message });
     }
   }
+});
+
+// Remote extraction of archives
+router.post('/extract', async (req: AuthenticatedRequest, res: Response) => {
+  let session;
+  try {
+    const userId = req.user!.userId;
+    const profileId = resolveProfileId(userId, req.body.profileId);
+    const archivePath = req.body.path || req.body.archivePath;
+    const destinationDir = req.body.destinationDir || req.body.targetDir;
+
+    if (!archivePath) {
+      res.status(400).json({ error: 'path is required' });
+      return;
+    }
+
+    session = await openSFTPSession({ userId, profileId });
+    const result = await sftpRemoteExtract(session.sshConn, archivePath, destinationDir);
+    res.json({
+      message: `Successfully extracted ${path.posix.basename(archivePath)}`,
+      path: archivePath,
+      destinationDir: destinationDir || path.posix.dirname(archivePath),
+      stdout: result.stdout,
+      stderr: result.stderr,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (session) session.close();
+  }
+});
+
+// Remote compression
+router.post('/compress', async (req: AuthenticatedRequest, res: Response) => {
+  let session;
+  try {
+    const userId = req.user!.userId;
+    const profileId = resolveProfileId(userId, req.body.profileId);
+    const sourcePaths = req.body.paths || req.body.sourcePaths;
+    const targetArchive = req.body.targetArchive;
+
+    if (!sourcePaths || !Array.isArray(sourcePaths) || sourcePaths.length === 0 || !targetArchive) {
+      res.status(400).json({ error: 'paths array and targetArchive are required' });
+      return;
+    }
+
+    session = await openSFTPSession({ userId, profileId });
+    const result = await sftpRemoteCompress(session.sshConn, sourcePaths, targetArchive);
+    res.json({
+      message: `Successfully compressed to ${path.posix.basename(targetArchive)}`,
+      targetArchive,
+      sourcePaths,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (session) session.close();
+  }
+});
+
+// Abort active transfer
+router.post('/transfer/abort', async (req: AuthenticatedRequest, res: Response) => {
+  const { transferId } = req.body;
+  if (!transferId) {
+    res.status(400).json({ error: 'transferId is required' });
+    return;
+  }
+
+  const transfer = activeTransfers.get(transferId);
+  if (!transfer) {
+    res.status(404).json({ error: `Transfer '${transferId}' not found or already completed` });
+    return;
+  }
+
+  try {
+    transfer.abort();
+  } catch {}
+  activeTransfers.delete(transferId);
+  res.json({ success: true, message: 'Transfer aborted', transferId });
 });
 
 export default router;

@@ -1,27 +1,35 @@
 # NodeSSH 🚀
 
-> **The Modern, High-Performance Web-Based Alternative to MobaXterm**  
-> Run locally on your workstation for zero-latency LAN port forwarding and SSH sessions, or deploy remotely in the cloud / Docker with multi-user isolation, encrypted key vaults, side-by-side SFTP file explorer, and KBS Cloud SSO.
+> **The Modern, High-Performance Web & Desktop Alternative to MobaXterm**  
+> Run as a standalone cross-platform **Electron Desktop App** or deploy as a **Web Service / Docker container** for zero-latency LAN port forwarding and SSH sessions. Features multi-user isolation, AES-256 encrypted key vaults, side-by-side SFTP file explorer with OS-native drag-and-drop, interactive terminal split panes, and KBS Cloud SSO.
 
 ---
 
 ## ✨ Key Features
 
-### 🖥️ 1. Next-Gen Terminal (Powered by `@xterm/xterm` v5+)
+### 🖥️ 1. Next-Gen Terminal (Powered by `@xterm/xterm` v6+)
 - **Multi-Tab Interface & Split Panes**: Horizontal and vertical split-screen terminal views with drag/reorder tabs.
 - **Configurable Session Kill on Tab Close**: Choose whether closing a tab immediately terminates the remote SSH process / PTY or keeps it detached in the background.
 - **Multi-Exec / Broadcast Input Mode**: Send keystrokes or commands to all active SSH sessions simultaneously — perfect for multi-node server orchestration and cluster maintenance.
+- **Safe Multi-Line Paste Confirmation**: Intercepts multi-line pastes with newline characters, giving you a preview modal before execution to prevent accidental commands.
 - **Rich Terminal Addons**: Auto-fit window resizing, search with highlight navigation, clickable web links, and 256-color & true-color rendering.
 - **Theme Engine**: Cyberpunk Neon, Dracula, One Dark, Monokai, Nord, and MobaXterm Classic.
 
 ### 📁 2. Dockable Side-by-Side SFTP File Explorer
 - **Synchronized SFTP Panel**: Live file manager alongside the active terminal tab.
-- **Drag-and-Drop Uploads & Fast Downloads**: Upload files directly from your desktop or download remote assets with one click.
+- **OS-Native Drag-and-Drop (Desktop Mode)**: Drag remote files or entire directories directly from the SFTP tree onto your local Desktop or OS File Explorer. Directories are automatically staged and extracted.
+- **Drag-and-Drop Web Uploads & Fast Downloads**: Upload files directly from your desktop or download remote assets with one click.
 - **In-Browser Code & Config Editor**: Click any remote configuration file (`.conf`, `.sh`, `.json`, `.yaml`, `.py`, `.env`, etc.) to view and edit with syntax highlighting and instant Save back over SFTP.
 - **Interactive Permissions Editor**: View and modify UNIX `chmod` octal permissions (e.g., `755`, `644`) with visual read/write/execute checkboxes.
 - **Path Sync**: Quick button to jump the SFTP directory to the active terminal's current working directory.
+- **Transfer Progress**: Real-time progress banners for active uploads and downloads.
 
-### 🌐 3. Visual SSH Tunneling & Port Forwarding Manager
+### 💻 3. Cross-Platform Electron Desktop Application
+- **Frameless Cyberpunk UI**: Sleek, custom borderless window frame with integrated Minimize, Maximize/Restore, and Close controls.
+- **Self-Contained Lifecycle**: Automatically boots and manages the embedded background backend server process on launch.
+- **Native OS Shell Integration**: Direct deep linking, external browser opening, and local folder inspection.
+
+### 🌐 4. Visual SSH Tunneling & Port Forwarding Manager
 Solves the common challenge of tunneling connections across local networks and gateways:
 - **Local Port Forwarding (`-L`)**:
   - Bind to `127.0.0.1` (localhost only) or `0.0.0.0` (all network interfaces).
@@ -31,21 +39,35 @@ Solves the common challenge of tunneling connections across local networks and g
 - **Bastion / Jump Host (ProxyJump)**: Chained SSH hops to reach isolated private subnets.
 - **Live Metrics Dashboard**: Real-time traffic counters (active client connections, bytes sent, bytes received, uptime) and 1-click start/stop.
 
-### 🔐 4. Per-User AES-256 Encrypted SSH Key Vault
+### 🔐 5. Per-User AES-256 Encrypted SSH Key Vault & Security
 - **Encrypted Storage**: Private keys are securely encrypted at rest per user with AES-256-GCM.
+- **Host Key Verification (TOFU)**: Trust-On-First-Use fingerprint verification modal and known-hosts database to prevent Man-In-The-Middle attacks.
 - **In-Browser Key Generator**: Create Ed25519 and RSA 4096-bit keypairs with one click.
 - **Key Importer**: Import OpenSSH, PEM, and PuTTY `.ppk` private keys.
 - **1-Click Public Key Push (`ssh-copy-id`)**: Automatically authenticate with a password to push and install your public key into `~/.ssh/authorized_keys` with proper UNIX permissions.
 
-### 👥 5. Multi-User Authentication & KBS Cloud SSO
+### 👥 6. Multi-User Authentication & KBS Cloud SSO
 - **Local Authentication**: Independent user accounts with `bcrypt` password hashing and JWT sessions.
 - **KBS Cloud SSO Integration**: Native OAuth / SSO support via `https://github.com/kbs-cloud/shared` with automatic offline/local fallback.
 - **Multi-Tenant Isolation**: Server profiles, encrypted keys, tunnels, snippets, and preferences are strictly isolated per user.
 
-### ⚡ 6. Server Profiles & Snippet Library
+### ⚡ 7. Server Profiles & Snippet Library
 - **Server Profile Manager**: Group servers into folders, assign color tags, configure jump hosts, custom keepalives, startup commands, and terminal settings.
 - **Import / Export**: Full support for NodeSSH JSON backups and MobaXterm (`.mxtsessions` / `.ini`) session exports/imports.
 - **Snippet Library**: Save commonly used commands and scripts for 1-click insertion or direct execution in the active terminal.
+
+---
+
+## ⌨️ Keyboard Shortcuts
+
+| Shortcut | Action |
+| :--- | :--- |
+| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>T</kbd> | Open New Session / Connection Launcher |
+| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>E</kbd> | Toggle Multi-Exec Broadcast Mode |
+| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> | Toggle Dockable SFTP File Explorer |
+| <kbd>Ctrl</kbd> + <kbd>B</kbd> | Toggle Navigation Sidebar |
+| <kbd>Ctrl</kbd> + <kbd>W</kbd> | Close Active Terminal Tab |
+| <kbd>Ctrl</kbd> + <kbd>1</kbd> .. <kbd>9</kbd> | Switch to Terminal Tab 1 through 9 |
 
 ---
 
@@ -53,25 +75,30 @@ Solves the common challenge of tunneling connections across local networks and g
 
 ```
 NodeSSH/
-├── server/                      # Node.js + TypeScript Backend
+├── electron/                    # Electron Desktop App Layer
+│   ├── main.ts                  # Main process: Window management, IPC, backend lifecycle, drag-and-drop
+│   ├── preload.ts               # Secure context bridge API
+│   └── tsconfig.json            # Electron TypeScript configuration
+├── server/                      # Node.js + Express + TypeScript Backend
 │   ├── src/
 │   │   ├── auth/                # Local Auth (bcrypt + JWT) & KBS SSO
-│   │   ├── db/                  # SQLite database engine & schema migrations
+│   │   ├── db/                  # SQLite / MongoDB database engines & migrations
 │   │   ├── ssh/                 # SSH2 manager, WebSocket PTY streamer, SFTP service
 │   │   ├── tunnels/             # Tunnel engine (-L, -R, -D SOCKS5, JumpHost)
-│   │   ├── routes/              # REST API controllers (profiles, keys, tunnels, snippets)
+│   │   ├── routes/              # REST API controllers (profiles, keys, tunnels, snippets, system)
 │   │   └── index.ts             # Express HTTP + WebSocket server
-├── client/                      # React 18 + Vite + TypeScript Frontend
+├── client/                      # React 19 + Vite + Tailwind CSS Frontend
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── terminal/        # @xterm/xterm tabs, split panes, multi-exec bar
-│   │   │   ├── sftp/            # Dockable file explorer, code editor, permissions modal
+│   │   │   ├── terminal/        # @xterm/xterm tabs, split panes, multi-exec, paste modal
+│   │   │   ├── sftp/            # Dockable file explorer, code editor, permissions modal, transfers
 │   │   │   ├── tunnels/         # Visual tunnel dashboard & LAN helper
 │   │   │   ├── profiles/        # Profile manager, quick connect, MobaXterm importer
-│   │   │   ├── keys/            # Key vault, key generator, ssh-copy-id modal
+│   │   │   ├── keys/            # Key vault, key generator, host key modal, ssh-copy-id
+│   │   │   ├── settings/        # Preferences & keyboard shortcuts modals
 │   │   │   └── auth/            # Local Login/Register & KBS SSO panel
 │   │   └── App.tsx              # Main application shell & state orchestration
-└── package.json                 # Root coordination scripts
+└── package.json                 # Monorepo root coordination & scripts
 ```
 
 ---
@@ -93,35 +120,49 @@ cd NodeSSH
 npm run install:all
 ```
 
-### Development Mode
+---
 
-Start both the backend server (port `3001`) and the Vite React frontend (port `5173`) with live reload:
+### 🖥️ Running as Electron Desktop App
+
+To run NodeSSH as a native desktop application with full OS drag-and-drop:
+
+```bash
+# Development Mode (Starts Backend, Frontend, and Electron with Hot-Reload)
+npm run electron:dev
+
+# Run Desktop App (Compiled)
+npm run electron:start
+```
+
+---
+
+### 🌐 Running as Web Application
+
+#### Development Mode (Web)
+Start both the backend server (port `3001`) and Vite frontend (port `5173`):
 
 ```bash
 npm run dev
 ```
-
 Open your browser to: **`http://localhost:5173`**
 
-### Production Build & Standalone Server
-
-Build the optimized React client and compile the TypeScript backend into a single standalone server:
+#### Production Standalone Web Server
+Build the optimized client and compile the TypeScript backend into a single server:
 
 ```bash
 # Build frontend and backend
 npm run build
 
-# Start production server (serves web UI, API, and WebSockets on port 3000)
+# Start production server (serves web UI, REST API, and WebSockets on port 3000)
 npm start
 ```
-
-Access the standalone app at: **`http://localhost:3000`**
+Access the application at: **`http://localhost:3000`**
 
 ---
 
 ## 🔧 Configuration Options
 
-Environment variables can be specified in a `.env` file in the `server/` directory:
+Environment variables can be configured in a `.env` file in the `server/` directory:
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
@@ -138,6 +179,7 @@ Environment variables can be specified in a `.env` file in the `server/` directo
 
 ## 🛡️ Security
 
+- **Host Key Verification**: Validates remote host public key fingerprints on first connection (TOFU) and persists known hosts to prevent MITM tampering.
 - **Encryption at Rest**: SSH private keys stored in the database are encrypted using AES-256-GCM with unique initialization vectors (IV) and authentication tags.
 - **Session Tokens**: REST API endpoints and WebSocket handshakes require valid JWT tokens.
 - **No Plaintext Passwords**: User passwords are saved as salted hashes using `bcrypt`.

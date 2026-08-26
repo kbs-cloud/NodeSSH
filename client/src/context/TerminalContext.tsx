@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { TerminalTab, ServerProfile, TerminalSplitState } from '../types';
 import { TerminalSession } from '../services/terminalSession';
 
@@ -14,12 +14,14 @@ interface TerminalContextType {
     profile?: Partial<ServerProfile>;
     title?: string;
     initialCommand?: string;
+    insertAfterTabId?: string;
   }) => string;
   closeTab: (tabId: string) => void;
+  reconnectTab: (tabId: string) => void;
   duplicateTab: (tabId: string) => void;
   renameTab: (tabId: string, newTitle: string) => void;
   pinTab: (tabId: string) => void;
-  setActiveTabId: (id: string) => void;
+  setActiveTabId: (id: string | null) => void;
   updateTab: (id: string, updates: Partial<TerminalTab>) => void;
 
   // Split view
@@ -99,20 +101,18 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       profile?: Partial<ServerProfile>;
       title?: string;
       initialCommand?: string;
+      insertAfterTabId?: string;
     }): string => {
-      const currentActive = tabs.find(t => t.id === activeTabId);
-      const effectiveProfile = options?.profile !== undefined ? options.profile : currentActive?.profile;
+      const effectiveProfile = options?.profile;
       const effectiveTitle =
         options?.title ||
-        (options?.profile?.name
-          ? options.profile.name
-          : effectiveProfile?.name
-          ? `${effectiveProfile.name}`
+        (effectiveProfile?.name
+          ? effectiveProfile.name
           : effectiveProfile?.host
           ? `${effectiveProfile.username || 'user'}@${effectiveProfile.host}`
-          : `Terminal ${tabs.length + 1}`);
+          : 'Local Shell');
 
-      const effectiveCommand = options?.initialCommand !== undefined ? options.initialCommand : currentActive?.initialCommand;
+      const effectiveCommand = options?.initialCommand || effectiveProfile?.startupCommand;
 
       const newId = 'tab-' + Date.now();
 
@@ -128,11 +128,21 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         createdAt: Date.now(),
         lastActive: Date.now(),
         closeOnTabClose: effectiveProfile?.closeSessionOnExit ?? true,
-        initialCommand: effectiveCommand || effectiveProfile?.startupCommand,
+        initialCommand: effectiveCommand,
         latencyMs: 12,
       };
 
-      setTabs(prev => [...prev, newTab]);
+      setTabs(prev => {
+        if (options?.insertAfterTabId) {
+          const index = prev.findIndex(t => t.id === options.insertAfterTabId);
+          if (index >= 0) {
+            const nextTabs = [...prev];
+            nextTabs.splice(index + 1, 0, newTab);
+            return nextTabs;
+          }
+        }
+        return [...prev, newTab];
+      });
       setActiveTabId(newId);
 
       // If in split mode and secondaryTab is empty, attach to secondary
@@ -159,23 +169,8 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setTabs(prev => {
         const filtered = prev.filter(t => t.id !== tabId);
         if (filtered.length === 0) {
-          // Keep at least one tab open
-          const fallbackId = 'tab-' + Date.now();
-          setActiveTabId(fallbackId);
-          return [
-            {
-              id: fallbackId,
-              title: 'Local Terminal',
-              status: 'connected',
-              cwd: '/home/ubuntu',
-              cols: 80,
-              rows: 24,
-              createdAt: Date.now(),
-              lastActive: Date.now(),
-              closeOnTabClose: true,
-              latencyMs: 8,
-            },
-          ];
+          setActiveTabId(null);
+          return [];
         }
 
         if (activeTabId === tabId) {
@@ -188,11 +183,19 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       // Update split view if closed tab was active in split
       setSplitState(prev => {
+        const remaining = tabs.filter(t => t.id !== tabId);
+        if (remaining.length === 0) {
+          return {
+            mode: 'single',
+            primaryTabId: null,
+            secondaryTabId: null,
+            splitRatio: 0.5,
+          };
+        }
         if (prev.secondaryTabId === tabId) {
           return { ...prev, secondaryTabId: null, mode: 'single' };
         }
         if (prev.primaryTabId === tabId) {
-          const remaining = tabs.filter(t => t.id !== tabId);
           return {
             ...prev,
             primaryTabId: remaining.length > 0 ? remaining[0].id : null,
@@ -205,14 +208,24 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     [tabs, activeTabId]
   );
 
+  const reconnectTab = useCallback((tabId: string) => {
+    const session = sessionsRef.current.get(tabId);
+    if (session) {
+      session.reconnect();
+    } else {
+      setTabs(prev => prev.map(t => (t.id === tabId ? { ...t, status: 'connecting' } : t)));
+    }
+  }, []);
+
   const duplicateTab = useCallback(
     (tabId: string) => {
       const source = tabs.find(t => t.id === tabId);
       if (source) {
-        addTab({
+        return addTab({
           profile: source.profile,
           title: `${source.title} (Copy)`,
           initialCommand: source.initialCommand,
+          insertAfterTabId: tabId,
         });
       }
     },
@@ -332,6 +345,13 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [activeTab?.cwd]);
 
+  // Automatically sync sftpCurrentPath whenever active tab's cwd changes if SFTP explorer is open/docked
+  useEffect(() => {
+    if (isSftpDocked && activeTab?.cwd) {
+      setSftpCurrentPath(activeTab.cwd);
+    }
+  }, [isSftpDocked, activeTab?.cwd]);
+
   return (
     <TerminalContext.Provider
       value={{
@@ -343,6 +363,7 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         addTab,
         closeTab,
+        reconnectTab,
         duplicateTab,
         renameTab,
         pinTab,

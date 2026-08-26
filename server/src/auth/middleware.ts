@@ -29,7 +29,7 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
     token = req.query.token;
   }
 
-  if (!token || token === 'default-session-token' || token.startsWith('mock-jwt-token')) {
+  if (!token || token === 'default-session-token') {
     // Transparent local default user fallback
     req.user = {
       userId: 'usr-default',
@@ -74,7 +74,7 @@ export function authenticateWsRequest(req: IncomingMessage): AuthTokenPayload {
       token = req.headers.authorization.substring(7).trim();
     }
 
-    if (token && token !== 'default-session-token' && !token.startsWith('mock-jwt-token')) {
+    if (token && token !== 'default-session-token') {
       return verifyToken(token);
     }
   } catch {}

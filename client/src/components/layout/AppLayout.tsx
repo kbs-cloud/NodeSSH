@@ -49,10 +49,10 @@ export const AppLayout: React.FC = () => {
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl+Shift+T: New Tab
+      // Ctrl+Shift+T: New Session / Open Launcher
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 't') {
         e.preventDefault();
-        addTab();
+        setActiveTabId(null);
       }
       // Ctrl+Shift+E: Toggle Multi-Exec
       else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
@@ -69,12 +69,12 @@ export const AppLayout: React.FC = () => {
         e.preventDefault();
         setIsSidebarCollapsed((prev: boolean) => !prev);
       }
-      // Ctrl+W: Close Tab (if multiple tabs open and not in text input)
+      // Ctrl+W: Close Active Tab
       else if (
         (e.ctrlKey || e.metaKey) &&
         e.key.toLowerCase() === 'w' &&
         !e.shiftKey &&
-        tabs.length > 1 &&
+        activeTabId !== null &&
         (e.target as HTMLElement).tagName !== 'INPUT' &&
         (e.target as HTMLElement).tagName !== 'TEXTAREA'
       ) {

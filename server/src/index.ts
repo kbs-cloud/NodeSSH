@@ -111,7 +111,8 @@ server.on('upgrade', (request, socket, head) => {
 });
 
 // Start HTTP and WebSocket server (unless in test mode)
-if (process.env.NODE_ENV !== 'test') {
+const isTestMode = process.env.NODE_ENV === 'test' || process.argv.some(a => a.includes('test'));
+if (!isTestMode) {
   server.listen(config.port, config.host, async () => {
     console.log('====================================================');
     console.log(`  🚀 NodeSSH Backend Server running on http://${config.host}:${config.port}`);

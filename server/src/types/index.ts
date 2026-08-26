@@ -42,6 +42,7 @@ export interface Profile {
   jump_host_id?: string | null;
   initial_dir?: string | null;
   startup_command?: string | null;
+  sftp_command?: string | null;
   keepalive_interval: number;
   close_on_exit: number; // 1 = true, 0 = false
   tags?: string | null; // JSON array string e.g. '["prod", "aws"]'
@@ -63,6 +64,7 @@ export interface ProfileCreateDTO {
   jump_host_id?: string;
   initial_dir?: string;
   startup_command?: string;
+  sftp_command?: string;
   keepalive_interval?: number;
   close_on_exit?: boolean;
   tags?: string[] | string;
@@ -202,6 +204,42 @@ export interface SFTPStat {
   permissions: string;
 }
 
+export interface SFTPRemoteExtractOptions {
+  archivePath: string;
+  targetDir?: string;
+}
+
+export interface SFTPRemoteExtractRequest {
+  profileId?: string;
+  path: string;
+  destinationDir?: string;
+}
+
+export interface SFTPRemoteCompressOptions {
+  sourcePaths: string[];
+  targetArchive: string;
+}
+
+export interface SFTPRemoteCompressRequest {
+  profileId?: string;
+  paths: string[];
+  targetArchive: string;
+}
+
+export interface SFTPTransferAbortRequest {
+  transferId: string;
+}
+
+export interface SFTPStreamZipOptions {
+  signal?: AbortSignal;
+  onProgress?: (file: string, bytes: number) => void;
+}
+
+export interface SFTPCommandResult {
+  stdout: string;
+  stderr: string;
+}
+
 export interface NetworkInterfaceInfo {
   name: string;
   address: string;
@@ -212,6 +250,8 @@ export interface NetworkInterfaceInfo {
 // WebSocket Terminal Protocol Messages
 export interface WSTerminalInitMessage {
   type: 'init';
+  tabId?: string;
+  isLocal?: boolean;
   profileId?: string;
   host?: string;
   port?: number;
@@ -225,6 +265,9 @@ export interface WSTerminalInitMessage {
   rows?: number;
   term?: string;
   close_on_exit?: boolean;
+  initialDir?: string;
+  initialCommand?: string;
+  shell?: string;
 }
 
 export interface WSTerminalDataMessage {

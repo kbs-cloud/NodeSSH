@@ -13,7 +13,6 @@ import {
   Home,
   ArrowRight,
   Edit2,
-  Folder,
   Download,
 } from 'lucide-react';
 import { SFTPFileItem } from '../../types';
@@ -21,9 +20,21 @@ import { api } from '../../services/api';
 import { useTerminal } from '../../context/TerminalContext';
 import { useApp } from '../../context/AppContext';
 import { SftpFileList } from './SftpFileList';
+import { TransferProgressBanner } from './TransferProgressBanner';
 
 interface SftpExplorerProps {
   onClose?: () => void;
+}
+
+interface TransferState {
+  active: boolean;
+  name: string;
+  progress: number;
+  loaded?: number;
+  total?: number;
+  mode: 'upload' | 'download';
+  isFolder?: boolean;
+  abortController?: AbortController;
 }
 
 export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
@@ -31,6 +42,7 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
     sftpCurrentPath,
     setSftpCurrentPath,
     syncSftpWithTerminalCwd,
+    sendInputToActiveTab,
     activeTab,
   } = useTerminal();
 
@@ -45,48 +57,7 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
   const [searchFilter, setSearchFilter] = useState<string>('');
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const [isDownloadDragOver, setIsDownloadDragOver] = useState<boolean>(false);
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
-  const [uploadFileName, setUploadFileName] = useState<string>('');
-
-  const handleDownloadDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDownloadDragOver(false);
-
-    try {
-      const dataStr = e.dataTransfer.getData('application/json');
-      if (dataStr) {
-        const { file } = JSON.parse(dataStr);
-        if (file) {
-          const isDir = file.type === 'directory';
-          const downloadName = isDir ? `${file.name}.zip` : file.name;
-          showToast(isDir ? `Compressing & downloading folder "${file.name}" as .zip...` : `Downloading ${file.name}...`, 'info');
-
-          const q = new URLSearchParams({ path: file.path });
-          if (profileId) q.set('profileId', profileId);
-          const token = localStorage.getItem('nodessh_token') || '';
-
-          const res = await fetch(`/api/sftp/download?${q.toString()}`, {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-          });
-
-          if (!res.ok) throw new Error('Download failed');
-
-          const blob = await res.blob();
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = downloadName;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-          showToast(isDir ? `Downloaded directory "${downloadName}" successfully!` : `Downloaded ${file.name}`, 'success');
-        }
-      }
-    } catch (err: any) {
-      showToast(`Download failed: ${err.message}`, 'error');
-    }
-  };
+  const [transferState, setTransferState] = useState<TransferState | null>(null);
 
   // Editable path bar state
   const [pathInput, setPathInput] = useState<string>(sftpCurrentPath);
@@ -174,25 +145,124 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
     }
   };
 
-  // Single file uploader with live progress tracking
+  // Cancel any active transfer
+  const handleCancelTransfer = () => {
+    if (transferState) {
+      if (transferState.abortController) {
+        transferState.abortController.abort();
+      }
+      api.abortTransfer(transferState.name).catch(() => {});
+      setTransferState(null);
+      showToast('Transfer cancelled', 'info');
+    }
+  };
+
+  // Single file uploader with live progress tracking & cancel support
   const uploadSingleFile = async (file: File) => {
-    setUploadFileName(file.name);
-    setUploadProgress(0);
+    const abortController = new AbortController();
+
+    setTransferState({
+      active: true,
+      name: file.name,
+      progress: 0,
+      loaded: 0,
+      total: file.size,
+      mode: 'upload',
+      isFolder: false,
+      abortController,
+    });
 
     try {
-      await api.uploadSftpFile(file, sftpCurrentPath, profileId, (percent) => {
-        setUploadProgress(percent);
-      });
+      await api.uploadSftpFile(
+        file,
+        sftpCurrentPath,
+        profileId,
+        (percent, loaded, total) => {
+          setTransferState(prev => (prev ? { ...prev, progress: percent, loaded, total } : null));
+        },
+        abortController.signal
+      );
 
       // Explicitly show 100% completion before clearing
-      setUploadProgress(100);
-      await new Promise(resolve => setTimeout(resolve, 500));
-      setUploadProgress(null);
+      setTransferState(prev => (prev ? { ...prev, progress: 100, loaded: file.size, total: file.size } : null));
+      await new Promise(resolve => setTimeout(resolve, 400));
       showToast(`Uploaded "${file.name}" successfully`, 'success');
       loadFiles();
     } catch (err: any) {
-      setUploadProgress(null);
-      showToast(`Failed to upload ${file.name}: ${err.message}`, 'error');
+      if (abortController.signal.aborted || err.message === 'Upload aborted') {
+        showToast('Transfer cancelled', 'info');
+      } else {
+        showToast(`Failed to upload ${file.name}: ${err.message}`, 'error');
+      }
+    } finally {
+      setTransferState(null);
+    }
+  };
+
+  // Download file or folder with live progress tracking & cancel support
+  const handleDownloadFile = async (file: SFTPFileItem) => {
+    const isDir = file.type === 'directory';
+    const downloadName = isDir ? `${file.name}.zip` : file.name;
+    const abortController = new AbortController();
+
+    setTransferState({
+      active: true,
+      name: downloadName,
+      progress: 0,
+      loaded: 0,
+      total: isDir ? 0 : file.size || 0,
+      mode: 'download',
+      isFolder: isDir,
+      abortController,
+    });
+
+    try {
+      const blob = await api.downloadSftpWithProgress(
+        file.path,
+        profileId,
+        isDir,
+        (percent, loaded, total) => {
+          setTransferState(prev => (prev ? { ...prev, progress: percent, loaded, total } : null));
+        },
+        abortController.signal
+      );
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = downloadName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showToast(isDir ? `Downloaded directory "${downloadName}" successfully!` : `Downloaded ${file.name}`, 'success');
+    } catch (err: any) {
+      if (abortController.signal.aborted || err.message === 'Download aborted') {
+        showToast('Transfer cancelled', 'info');
+      } else {
+        showToast(`Download failed: ${err.message}`, 'error');
+      }
+    } finally {
+      setTransferState(null);
+    }
+  };
+
+  // Dropdown Drop Download Handler
+  const handleDownloadDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDownloadDragOver(false);
+
+    try {
+      const dataStr = e.dataTransfer.getData('application/json');
+      if (dataStr) {
+        const { file } = JSON.parse(dataStr);
+        if (file) {
+          await handleDownloadFile(file);
+        }
+      }
+    } catch (err: any) {
+      showToast(`Download drop failed: ${err.message}`, 'error');
     }
   };
 
@@ -227,6 +297,43 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
       showToast(`Created folder "${folderName}"`, 'success');
       loadFiles();
     }
+  };
+
+  // Remote Archive Extraction
+  const handleExtractRemote = async (file: SFTPFileItem) => {
+    try {
+      showToast(`Extracting "${file.name}" on server...`, 'info');
+      const res = await api.remoteExtract(file.path, sftpCurrentPath, profileId);
+      showToast(res.message || `Extracted "${file.name}" successfully`, 'success');
+      loadFiles();
+    } catch (err: any) {
+      showToast(`Extraction failed: ${err.message}`, 'error');
+    }
+  };
+
+  // Remote File/Folder Compression
+  const handleCompressRemote = async (file: SFTPFileItem) => {
+    try {
+      const cleanName = file.name.replace(/[/\\]/g, '');
+      const targetArchive = `${sftpCurrentPath === '/' ? '' : sftpCurrentPath}/${cleanName}.tar.gz`;
+      showToast(`Compressing "${file.name}" to .tar.gz on server...`, 'info');
+      const res = await api.remoteCompress([file.path], targetArchive, profileId);
+      showToast(res.message || `Compressed to ${cleanName}.tar.gz successfully`, 'success');
+      loadFiles();
+    } catch (err: any) {
+      showToast(`Compression failed: ${err.message}`, 'error');
+    }
+  };
+
+  // Terminal Integration Handlers
+  const handleOpenInTerminal = (path: string) => {
+    sendInputToActiveTab(`cd "${path}"\r`);
+    showToast(`Navigated terminal to "${path}"`, 'info');
+  };
+
+  const handleInsertInTerminal = (path: string) => {
+    sendInputToActiveTab(`"${path}" `);
+    showToast(`Inserted path into terminal`, 'info');
   };
 
   // Breadcrumbs parsing
@@ -391,7 +498,7 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
               title="Click to type custom path"
             >
               <button
-                onClick={(e) => {
+                onClick={e => {
                   e.stopPropagation();
                   handleNavigate('/');
                 }}
@@ -406,7 +513,7 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
                   <React.Fragment key={segmentPath}>
                     <span className="text-slate-600">/</span>
                     <button
-                      onClick={(e) => {
+                      onClick={e => {
                         e.stopPropagation();
                         handleNavigate(segmentPath);
                       }}
@@ -442,20 +549,17 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
         )}
       </div>
 
-      {/* Upload Progress Bar (if active) */}
-      {uploadProgress !== null && (
-        <div className="p-2.5 bg-cyan-950/90 border-b border-cyan-500/40 text-xs space-y-1">
-          <div className="flex justify-between items-center text-cyan-300">
-            <span className="truncate font-mono text-[11px]">Uploading: {uploadFileName}</span>
-            <span className="font-bold">{uploadProgress}%</span>
-          </div>
-          <div className="w-full h-1.5 bg-black/50 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-cyan-400 transition-all duration-150"
-              style={{ width: `${uploadProgress}%` }}
-            />
-          </div>
-        </div>
+      {/* Transfer Progress Banner (Upload / Download / Folder Zip) */}
+      {transferState && (
+        <TransferProgressBanner
+          fileName={transferState.name}
+          progress={transferState.progress}
+          transferredBytes={transferState.loaded}
+          totalBytes={transferState.total}
+          mode={transferState.mode}
+          isFolder={transferState.isFolder}
+          onCancel={handleCancelTransfer}
+        />
       )}
 
       {/* File List */}
@@ -465,6 +569,11 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
         profileId={profileId}
         onNavigate={handleNavigate}
         onRefresh={loadFiles}
+        onDownload={handleDownloadFile}
+        onExtractRemote={handleExtractRemote}
+        onCompressRemote={handleCompressRemote}
+        onOpenInTerminal={handleOpenInTerminal}
+        onInsertInTerminal={handleInsertInTerminal}
       />
 
       {/* Interactive Download Dropzone Bar at Bottom */}

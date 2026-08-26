@@ -157,6 +157,9 @@ export interface AppSettings {
   defaultCloseOnExit: boolean;
   defaultKeepalive: number;
   lanIp: string;
+  copyOnSelect?: boolean;
+  rightClickPaste?: boolean;
+  confirmMultiLinePaste?: boolean;
 }
 
 export interface QuickConnectParams {

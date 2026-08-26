@@ -17,6 +17,9 @@ import {
   Copy,
   Archive,
   GripVertical,
+  Terminal,
+  ChevronRight,
+  Package,
 } from 'lucide-react';
 import { SFTPFileItem } from '../../types';
 import { useApp } from '../../context/AppContext';
@@ -28,6 +31,11 @@ interface SftpFileListProps {
   profileId?: string;
   onNavigate: (path: string) => void;
   onRefresh: () => void;
+  onDownload?: (file: SFTPFileItem) => void;
+  onExtractRemote?: (file: SFTPFileItem) => void;
+  onCompressRemote?: (file: SFTPFileItem) => void;
+  onOpenInTerminal?: (path: string) => void;
+  onInsertInTerminal?: (path: string) => void;
 }
 
 export const SftpFileList: React.FC<SftpFileListProps> = ({
@@ -36,10 +44,30 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
   profileId,
   onNavigate,
   onRefresh,
+  onDownload,
+  onExtractRemote,
+  onCompressRemote,
+  onOpenInTerminal,
+  onInsertInTerminal,
 }) => {
   const { setEditingFile, setEditingPermissionsFile, showToast } = useApp();
   const [activeMenuFile, setActiveMenuFile] = useState<string | null>(null);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+
+  const isArchiveFile = (fileName: string): boolean => {
+    const lower = fileName.toLowerCase();
+    return (
+      lower.endsWith('.tar.gz') ||
+      lower.endsWith('.tgz') ||
+      lower.endsWith('.zip') ||
+      lower.endsWith('.tar') ||
+      lower.endsWith('.bz2') ||
+      lower.endsWith('.tbz2') ||
+      lower.endsWith('.xz') ||
+      lower.endsWith('.txz') ||
+      lower.endsWith('.7z')
+    );
+  };
 
   const getFileIcon = (file: SFTPFileItem) => {
     if (file.type === 'directory') {
@@ -79,6 +107,11 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
   };
 
   const handleDownload = async (file: SFTPFileItem) => {
+    if (onDownload) {
+      onDownload(file);
+      return;
+    }
+
     const isDir = file.type === 'directory';
     const downloadName = isDir ? `${file.name}.zip` : file.name;
     showToast(isDir ? `Compressing & downloading "${file.name}" as .zip...` : `Downloading ${file.name}...`, 'info');
@@ -164,12 +197,13 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
           {files.map(file => {
             const isSelected = selectedFilePath === file.path;
             const isDir = file.type === 'directory';
+            const isArchive = !isDir && isArchiveFile(file.name);
 
             return (
               <tr
                 key={file.path}
                 draggable={true}
-                onDragStart={(e) => {
+                onDragStart={e => {
                   const isElectron = Boolean((window as any).electronAPI?.startDrag);
                   const mimeType = isDir ? 'application/zip' : 'application/octet-stream';
                   const downloadName = isDir ? `${file.name}.zip` : file.name;
@@ -207,12 +241,16 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
                 className={`group transition-colors cursor-grab active:cursor-grabbing ${
                   isSelected ? 'bg-cyan-950/40 border-l-2 border-cyan-400' : 'hover:bg-white/5'
                 }`}
-                title={isDir ? `Drag to desktop/dropzone to download "${file.name}" as .zip archive` : `Drag to download "${file.name}"`}
+                title={
+                  isDir
+                    ? `Drag to desktop/dropzone to download "${file.name}" as .zip archive`
+                    : `Drag to download "${file.name}"`
+                }
               >
                 {/* Name & Icon */}
                 <td className="py-1.5 pl-3 pr-2">
                   <div
-                    onClick={(e) => {
+                    onClick={e => {
                       if (isDir) {
                         e.stopPropagation();
                         onNavigate(file.path);
@@ -313,7 +351,7 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
                           setActiveMenuFile(null);
                         }}
                       />
-                      <div className="absolute right-3 top-8 z-30 w-44 bg-[#151b30] border border-[var(--theme-border,#1e2640)] rounded-lg shadow-xl py-1 text-xs text-left">
+                      <div className="absolute right-3 top-8 z-30 w-52 bg-[#151b30] border border-[var(--theme-border,#1e2640)] rounded-lg shadow-2xl py-1 text-xs text-left">
                         {isDir ? (
                           <>
                             <button
@@ -365,6 +403,74 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
                             </button>
                           </>
                         )}
+
+                        <div className="my-1 border-t border-white/10" />
+
+                        {/* Terminal Deep Integrations */}
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            if (onOpenInTerminal) {
+                              onOpenInTerminal(file.path);
+                            }
+                            setActiveMenuFile(null);
+                          }}
+                          className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-cyan-300"
+                          title="Navigate active terminal to this location"
+                        >
+                          <Terminal className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>Open in Terminal (<code className="text-[10px] text-cyan-200">cd</code>)</span>
+                        </button>
+
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            if (onInsertInTerminal) {
+                              onInsertInTerminal(file.path);
+                            }
+                            setActiveMenuFile(null);
+                          }}
+                          className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-slate-200"
+                          title="Paste path into active terminal"
+                        >
+                          <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Insert Path in Terminal</span>
+                        </button>
+
+                        {/* Remote Compression & Extraction Actions */}
+                        {isArchive && (
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              if (onExtractRemote) {
+                                onExtractRemote(file);
+                              }
+                              setActiveMenuFile(null);
+                            }}
+                            className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-amber-300"
+                            title="Extract archive on remote server"
+                          >
+                            <Package className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Extract on Remote Server</span>
+                          </button>
+                        )}
+
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            if (onCompressRemote) {
+                              onCompressRemote(file);
+                            }
+                            setActiveMenuFile(null);
+                          }}
+                          className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-slate-200"
+                          title="Compress into .tar.gz archive on remote server"
+                        >
+                          <Archive className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Compress to .tar.gz on Server</span>
+                        </button>
+
+                        <div className="my-1 border-t border-white/10" />
 
                         <button
                           onClick={e => {

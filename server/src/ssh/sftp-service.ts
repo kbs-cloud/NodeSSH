@@ -1,8 +1,9 @@
 import { SFTPWrapper, Client } from 'ssh2';
 import { createSSHConnection, SSHConnectionOptions, SSHConnectionResult } from './connection';
-import { SFTPFileEntry, SFTPStat } from '../types';
+import { SFTPFileEntry, SFTPStat, SFTPStreamZipOptions } from '../types';
 import { Readable, Writable } from 'stream';
 import path from 'path';
+import { getProfileById } from '../db/profiles';
 const archiver = require('archiver');
 
 export interface SFTPContext {
@@ -28,15 +29,89 @@ export function modeToPermissionsString(mode: number): string {
 export async function openSFTPSession(options: SSHConnectionOptions): Promise<SFTPContext> {
   const sshConn = await createSSHConnection(options);
 
+  let sftpCommand = options.sftpCommand;
+  if (!sftpCommand && options.profileId) {
+    const profile = getProfileById(options.userId, options.profileId);
+    if (profile?.sftp_command) {
+      sftpCommand = profile.sftp_command;
+    }
+  }
+
   const sftp = await new Promise<SFTPWrapper>((resolve, reject) => {
-    sshConn.client.sftp((err, sftpWrapper) => {
-      if (err) {
-        sshConn.client.end();
-        if (sshConn.jumpClient) sshConn.jumpClient.end();
-        return reject(new Error(`Failed to open SFTP subsystem: ${err.message}`));
-      }
-      resolve(sftpWrapper);
-    });
+    if (sftpCommand) {
+      sshConn.client.exec(sftpCommand, (err, stream) => {
+        if (err) {
+          sshConn.client.end();
+          if (sshConn.jumpClient) sshConn.jumpClient.end();
+          return reject(new Error(`Failed to exec custom SFTP command '${sftpCommand}': ${err.message}`));
+        }
+        try {
+          const SFTPClass = require('ssh2/lib/protocol/SFTP.js')?.SFTP;
+          if (!SFTPClass) {
+            throw new Error('SFTP protocol class not available');
+          }
+
+          let sftpWrapper: any;
+          if ((stream as any).incoming && (stream as any).outgoing) {
+            sftpWrapper = new SFTPClass(sshConn.client, {
+              type: 'session',
+              incoming: (stream as any).incoming,
+              outgoing: (stream as any).outgoing,
+            });
+            if ((sshConn.client as any)._chanMgr && (stream as any).incoming) {
+              (sshConn.client as any)._chanMgr.update((stream as any).incoming.id, sftpWrapper);
+            }
+          } else {
+            sftpWrapper = new SFTPClass(stream);
+          }
+
+          const onReady = () => {
+            removeListeners();
+            resolve(sftpWrapper as SFTPWrapper);
+          };
+          const onError = (error: any) => {
+            removeListeners();
+            sshConn.client.end();
+            if (sshConn.jumpClient) sshConn.jumpClient.end();
+            reject(new Error(`SFTP error: ${error.message}`));
+          };
+          const onExit = (code: any) => {
+            removeListeners();
+            sshConn.client.end();
+            if (sshConn.jumpClient) sshConn.jumpClient.end();
+            reject(new Error(`SFTP process exited with code ${code}`));
+          };
+          function removeListeners() {
+            sftpWrapper.removeListener('ready', onReady);
+            sftpWrapper.removeListener('error', onError);
+            sftpWrapper.removeListener('exit', onExit);
+            sftpWrapper.removeListener('close', onExit);
+          }
+
+          sftpWrapper.on('ready', onReady)
+            .on('error', onError)
+            .on('exit', onExit)
+            .on('close', onExit);
+
+          if (typeof sftpWrapper._init === 'function') {
+            sftpWrapper._init();
+          }
+        } catch (wrapperErr: any) {
+          sshConn.client.end();
+          if (sshConn.jumpClient) sshConn.jumpClient.end();
+          reject(new Error(`Failed to instantiate SFTPWrapper: ${wrapperErr.message}`));
+        }
+      });
+    } else {
+      sshConn.client.sftp((err, sftpWrapper) => {
+        if (err) {
+          sshConn.client.end();
+          if (sshConn.jumpClient) sshConn.jumpClient.end();
+          return reject(new Error(`Failed to open SFTP subsystem: ${err.message}`));
+        }
+        resolve(sftpWrapper);
+      });
+    }
   });
 
   const close = () => {
@@ -339,12 +414,36 @@ export async function sftpChmod(
 export async function sftpStreamDirectoryAsZip(
   sftp: SFTPWrapper,
   remoteDirPath: string,
-  outputStream: Writable
+  outputStream: Writable,
+  options?: SFTPStreamZipOptions
 ): Promise<void> {
   const normalizedPath = remoteDirPath.replace(/\\/g, '/');
   const archive = typeof archiver.ZipArchive === 'function'
     ? new archiver.ZipArchive({ zlib: { level: 6 } })
     : (archiver as any)('zip', { zlib: { level: 6 } });
+
+  let activeReadStream: Readable | null = null;
+  let aborted = false;
+
+  const onAbort = () => {
+    aborted = true;
+    try {
+      if (activeReadStream) {
+        activeReadStream.destroy();
+      }
+    } catch {}
+    try {
+      archive.destroy();
+    } catch {}
+  };
+
+  if (options?.signal) {
+    if (options.signal.aborted) {
+      onAbort();
+      throw new Error('Transfer aborted');
+    }
+    options.signal.addEventListener('abort', onAbort, { once: true });
+  }
 
   archive.on('error', (err: any) => {
     try {
@@ -357,13 +456,21 @@ export async function sftpStreamDirectoryAsZip(
     archive.on('finish', () => resolve());
     archive.on('error', (err: any) => reject(err));
     outputStream.on('finish', () => resolve());
+    outputStream.on('error', (err: any) => reject(err));
   });
 
   archive.pipe(outputStream);
 
   async function traverse(currentDir: string, relativePrefix: string = '') {
+    if (aborted || options?.signal?.aborted) {
+      throw new Error('Transfer aborted');
+    }
+
     const list = await sftpList(sftp, currentDir);
     for (const item of list) {
+      if (aborted || options?.signal?.aborted) {
+        throw new Error('Transfer aborted');
+      }
       if (item.filename === '.' || item.filename === '..') continue;
 
       const itemFullPath = `${currentDir.replace(/\/+$/, '')}/${item.filename}`;
@@ -373,27 +480,242 @@ export async function sftpStreamDirectoryAsZip(
         archive.append(Buffer.alloc(0), { name: `${itemRelPath}/` });
         try {
           await traverse(itemFullPath, itemRelPath);
-        } catch {
+        } catch (err: any) {
+          if (aborted || options?.signal?.aborted) throw err;
           // Ignore permission errors on subfolders
         }
       } else {
-        try {
-          const fileBuffer = await new Promise<Buffer>((resolve) => {
-            const chunks: Buffer[] = [];
-            const readStream = sftp.createReadStream(itemFullPath);
-            readStream.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
-            readStream.on('end', () => resolve(Buffer.concat(chunks)));
-            readStream.on('error', () => resolve(Buffer.alloc(0)));
-          });
-          archive.append(fileBuffer, { name: itemRelPath, mode: item.mode });
-        } catch {
-          // Ignore unreadable files
+        if (aborted || options?.signal?.aborted) {
+          throw new Error('Transfer aborted');
         }
+
+        await new Promise<void>((resolveFile, rejectFile) => {
+          if (aborted || options?.signal?.aborted) {
+            return rejectFile(new Error('Transfer aborted'));
+          }
+
+          const readStream = sftp.createReadStream(itemFullPath);
+          activeReadStream = readStream;
+
+          let fileBytes = 0;
+          readStream.on('data', (chunk: Buffer) => {
+            fileBytes += chunk.length;
+            if (options?.onProgress) {
+              options.onProgress(itemRelPath, fileBytes);
+            }
+          });
+
+          const cleanup = () => {
+            if (activeReadStream === readStream) {
+              activeReadStream = null;
+            }
+          };
+
+          const handleFileAbort = () => {
+            try {
+              readStream.destroy();
+            } catch {}
+            cleanup();
+            rejectFile(new Error('Transfer aborted'));
+          };
+
+          if (options?.signal) {
+            options.signal.addEventListener('abort', handleFileAbort, { once: true });
+          }
+
+          let isSettled = false;
+
+          readStream.on('error', (err: any) => {
+            if (isSettled) return;
+            isSettled = true;
+            if (options?.signal) {
+              options.signal.removeEventListener('abort', handleFileAbort);
+            }
+            cleanup();
+            if (aborted || options?.signal?.aborted) {
+              return rejectFile(new Error('Transfer aborted'));
+            }
+            // Ignore unreadable individual files (e.g. permission denied) and proceed
+            resolveFile();
+          });
+
+          const onEntry = (entry: any) => {
+            if (entry && entry.name === itemRelPath) {
+              if (isSettled) return;
+              isSettled = true;
+              archive.removeListener('entry', onEntry);
+              if (options?.signal) {
+                options.signal.removeEventListener('abort', handleFileAbort);
+              }
+              cleanup();
+              resolveFile();
+            }
+          };
+
+          archive.on('entry', onEntry);
+
+          try {
+            archive.append(readStream, { name: itemRelPath, mode: item.mode });
+          } catch (err: any) {
+            if (isSettled) return;
+            isSettled = true;
+            archive.removeListener('entry', onEntry);
+            if (options?.signal) {
+              options.signal.removeEventListener('abort', handleFileAbort);
+            }
+            cleanup();
+            if (aborted || options?.signal?.aborted) {
+              return rejectFile(new Error('Transfer aborted'));
+            }
+            resolveFile();
+          }
+        });
       }
     }
   }
 
-  await traverse(normalizedPath, '');
-  await archive.finalize();
-  await finishPromise;
+  try {
+    await traverse(normalizedPath, '');
+    if (aborted || options?.signal?.aborted) {
+      throw new Error('Transfer aborted');
+    }
+    await archive.finalize();
+    await finishPromise;
+  } finally {
+    if (options?.signal) {
+      options.signal.removeEventListener('abort', onAbort);
+    }
+  }
+}
+
+/**
+ * Extracts remote archive (.tar.gz, .tgz, .tar.bz2, .tbz2, .tar.xz, .txz, .zip, .tar)
+ */
+export async function sftpRemoteExtract(
+  sshConn: SSHConnectionResult,
+  archivePath: string,
+  targetDir?: string
+): Promise<{ stdout: string; stderr: string }> {
+  const normPath = archivePath.replace(/\\/g, '/');
+  const lower = normPath.toLowerCase();
+
+  let cmd: string;
+  const escapedPath = normPath.replace(/"/g, '\\"');
+  const escapedDest = targetDir ? targetDir.replace(/\\/g, '/').replace(/"/g, '\\"') : '';
+
+  if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
+    cmd = escapedDest
+      ? `mkdir -p "${escapedDest}" && tar -xzf "${escapedPath}" -C "${escapedDest}"`
+      : `tar -xzf "${escapedPath}"`;
+  } else if (lower.endsWith('.tar.bz2') || lower.endsWith('.tbz2')) {
+    cmd = escapedDest
+      ? `mkdir -p "${escapedDest}" && tar -xjf "${escapedPath}" -C "${escapedDest}"`
+      : `tar -xjf "${escapedPath}"`;
+  } else if (lower.endsWith('.tar.xz') || lower.endsWith('.txz')) {
+    cmd = escapedDest
+      ? `mkdir -p "${escapedDest}" && tar -xJf "${escapedPath}" -C "${escapedDest}"`
+      : `tar -xJf "${escapedPath}"`;
+  } else if (lower.endsWith('.zip')) {
+    cmd = escapedDest
+      ? `mkdir -p "${escapedDest}" && unzip -o "${escapedPath}" -d "${escapedDest}"`
+      : `unzip -o "${escapedPath}"`;
+  } else if (lower.endsWith('.tar')) {
+    cmd = escapedDest
+      ? `mkdir -p "${escapedDest}" && tar -xf "${escapedPath}" -C "${escapedDest}"`
+      : `tar -xf "${escapedPath}"`;
+  } else {
+    // Default fallback to tar -xf
+    cmd = escapedDest
+      ? `mkdir -p "${escapedDest}" && tar -xf "${escapedPath}" -C "${escapedDest}"`
+      : `tar -xf "${escapedPath}"`;
+  }
+
+  return new Promise((resolve, reject) => {
+    sshConn.client.exec(cmd, (err, stream) => {
+      if (err) return reject(new Error(`Failed to execute remote extraction: ${err.message}`));
+
+      let stdout = '';
+      let stderr = '';
+
+      stream.on('data', (data: Buffer) => {
+        stdout += data.toString('utf-8');
+      });
+
+      stream.stderr.on('data', (data: Buffer) => {
+        stderr += data.toString('utf-8');
+      });
+
+      stream.on('close', (code: number) => {
+        if (code !== 0 && code !== null) {
+          return reject(
+            new Error(`Remote extraction failed (exit code ${code}): ${stderr.trim() || stdout.trim() || 'Unknown error'}`)
+          );
+        }
+        resolve({ stdout, stderr });
+      });
+
+      stream.on('error', (streamErr: any) => {
+        reject(new Error(`Extraction stream error: ${streamErr.message}`));
+      });
+    });
+  });
+}
+
+/**
+ * Creates remote compressed archive from source paths
+ */
+export async function sftpRemoteCompress(
+  sshConn: SSHConnectionResult,
+  sourcePaths: string[],
+  targetArchive: string
+): Promise<{ stdout: string; stderr: string }> {
+  if (!sourcePaths || sourcePaths.length === 0) {
+    throw new Error('At least one source path is required for compression');
+  }
+
+  const normTarget = targetArchive.replace(/\\/g, '/');
+  const escapedTarget = normTarget.replace(/"/g, '\\"');
+  const targetDir = path.posix.dirname(normTarget);
+  const escapedTargetDir = targetDir.replace(/"/g, '\\"');
+
+  const quotedSources = sourcePaths
+    .map((p) => `"${p.replace(/\\/g, '/').replace(/"/g, '\\"')}"`)
+    .join(' ');
+
+  let cmd: string;
+  if (normTarget.toLowerCase().endsWith('.zip')) {
+    cmd = `mkdir -p "${escapedTargetDir}" && zip -r "${escapedTarget}" ${quotedSources}`;
+  } else {
+    cmd = `mkdir -p "${escapedTargetDir}" && tar -czf "${escapedTarget}" ${quotedSources}`;
+  }
+
+  return new Promise((resolve, reject) => {
+    sshConn.client.exec(cmd, (err, stream) => {
+      if (err) return reject(new Error(`Failed to execute remote compression: ${err.message}`));
+
+      let stdout = '';
+      let stderr = '';
+
+      stream.on('data', (data: Buffer) => {
+        stdout += data.toString('utf-8');
+      });
+
+      stream.stderr.on('data', (data: Buffer) => {
+        stderr += data.toString('utf-8');
+      });
+
+      stream.on('close', (code: number) => {
+        if (code !== 0 && code !== null) {
+          return reject(
+            new Error(`Remote compression failed (exit code ${code}): ${stderr.trim() || stdout.trim() || 'Unknown error'}`)
+          );
+        }
+        resolve({ stdout, stderr });
+      });
+
+      stream.on('error', (streamErr: any) => {
+        reject(new Error(`Compression stream error: ${streamErr.message}`));
+      });
+    });
+  });
 }

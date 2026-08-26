@@ -17,6 +17,9 @@ export const SettingsModal: React.FC = () => {
   const [sftpPosition, setSftpPosition] = useState<'left' | 'right' | 'sidebar'>(settings.sftpPosition || 'right');
   const [defaultCloseOnExit, setDefaultCloseOnExit] = useState<boolean>(settings.defaultCloseOnExit ?? true);
   const [defaultKeepalive, setDefaultKeepalive] = useState<number>(settings.defaultKeepalive || 30);
+  const [copyOnSelect, setCopyOnSelect] = useState<boolean>(settings.copyOnSelect ?? true);
+  const [rightClickPaste, setRightClickPaste] = useState<boolean>(settings.rightClickPaste ?? true);
+  const [confirmMultiLinePaste, setConfirmMultiLinePaste] = useState<boolean>(settings.confirmMultiLinePaste ?? true);
 
   useEffect(() => {
     if (isSettingsOpen) {
@@ -28,6 +31,9 @@ export const SettingsModal: React.FC = () => {
       setSftpPosition(settings.sftpPosition || 'right');
       setDefaultCloseOnExit(settings.defaultCloseOnExit ?? true);
       setDefaultKeepalive(settings.defaultKeepalive || 30);
+      setCopyOnSelect(settings.copyOnSelect ?? true);
+      setRightClickPaste(settings.rightClickPaste ?? true);
+      setConfirmMultiLinePaste(settings.confirmMultiLinePaste ?? true);
     }
   }, [settings, isSettingsOpen]);
 
@@ -43,6 +49,9 @@ export const SettingsModal: React.FC = () => {
       sftpPosition,
       defaultCloseOnExit,
       defaultKeepalive,
+      copyOnSelect,
+      rightClickPaste,
+      confirmMultiLinePaste,
     });
     setIsSettingsOpen(false);
   };
@@ -152,6 +161,45 @@ export const SettingsModal: React.FC = () => {
               onChange={e => setFontFamily(e.target.value)}
               className="w-full bg-[#070913] border border-white/10 rounded-lg px-3 py-1.5 text-white outline-none font-mono"
             />
+          </div>
+
+          {/* Terminal Clipboard & Interaction Options */}
+          <div className="pt-2 border-t border-white/5 space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={copyOnSelect}
+                onChange={e => setCopyOnSelect(e.target.checked)}
+                className="accent-cyan-400 w-4 h-4"
+              />
+              <span className="text-slate-300">
+                <strong className="text-white font-medium">Copy on select:</strong> Automatically copy highlighted text to clipboard
+              </span>
+            </label>
+
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={rightClickPaste}
+                onChange={e => setRightClickPaste(e.target.checked)}
+                className="accent-cyan-400 w-4 h-4"
+              />
+              <span className="text-slate-300">
+                <strong className="text-white font-medium">Right click to paste:</strong> Paste clipboard content when right-clicking terminal
+              </span>
+            </label>
+
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={confirmMultiLinePaste}
+                onChange={e => setConfirmMultiLinePaste(e.target.checked)}
+                className="accent-cyan-400 w-4 h-4"
+              />
+              <span className="text-slate-300">
+                <strong className="text-white font-medium">Confirm multi-line paste:</strong> Warn before pasting text with newlines (prevents accidental command execution)
+              </span>
+            </label>
           </div>
         </div>
 

@@ -1,6 +1,5 @@
 import { ServerProfile, KeyVaultItem, SSHTunnel, Snippet, SFTPFileItem, User } from '../types';
 import { storage } from './storage';
-import { INITIAL_MOCK_FILES, MOCK_FILE_CONTENTS } from '../utils/mockShell';
 
 const API_BASE = '/api';
 
@@ -49,21 +48,12 @@ class ApiClient {
         return await res.json();
       }
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || 'Login failed');
+      throw new Error(err.error || err.message || 'Invalid username or password');
     } catch (e: any) {
-      if (e.message && e.message !== 'Failed to fetch') {
-        throw e;
+      if (e.message && (e.message.includes('fetch') || e.message === 'Failed to fetch')) {
+        throw new Error('Unable to connect to NodeSSH authentication server. Please ensure the backend server is running on port 3001.');
       }
-      // Offline fallback: simulate local login
-      const user: User = {
-        id: 'usr-local',
-        username: credentials.username,
-        email: `${credentials.username}@nodessh.local`,
-        authType: 'local',
-        createdAt: new Date().toISOString(),
-      };
-      const token = 'mock-jwt-token-' + Date.now();
-      return { user, token };
+      throw e;
     }
   }
 
@@ -78,21 +68,12 @@ class ApiClient {
         return await res.json();
       }
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || 'Registration failed');
+      throw new Error(err.error || err.message || 'Registration failed');
     } catch (e: any) {
-      if (e.message && e.message !== 'Failed to fetch') {
-        throw e;
+      if (e.message && (e.message.includes('fetch') || e.message === 'Failed to fetch')) {
+        throw new Error('Unable to connect to NodeSSH authentication server. Please ensure the backend server is running on port 3001.');
       }
-      // Offline fallback
-      const user: User = {
-        id: 'usr-local-' + Date.now(),
-        username: data.username,
-        email: data.email,
-        authType: 'local',
-        createdAt: new Date().toISOString(),
-      };
-      const token = 'mock-jwt-token-' + Date.now();
-      return { user, token };
+      throw e;
     }
   }
 
@@ -242,21 +223,28 @@ class ApiClient {
     publicKey: string;
   }): Promise<{ success: boolean; message: string }> {
     try {
-      const res = await fetch(`${API_BASE}/keys/push`, {
+      const res = await fetch(`${API_BASE}/keys/push-to-server`, {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify(params),
+        body: JSON.stringify({
+          host: params.host,
+          port: params.port,
+          username: params.username,
+          password: params.password,
+          public_key: params.publicKey,
+        }),
       });
       if (res.ok) {
         return await res.json();
       }
-    } catch {}
-    // Simulated push
-    await new Promise(r => setTimeout(r, 1200));
-    return {
-      success: true,
-      message: `Key successfully appended to ${params.username}@${params.host}:~/.ssh/authorized_keys`,
-    };
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || err.message || `Failed to push key to ${params.username}@${params.host}`);
+    } catch (e: any) {
+      if (e.message && e.message.includes('fetch')) {
+        throw new Error('NodeSSH backend server is unreachable. Please ensure the server is running on port 3001.');
+      }
+      throw e;
+    }
   }
 
   // --- Known Hosts ---
@@ -469,44 +457,58 @@ class ApiClient {
 
   // --- SFTP ---
   async listSftpFiles(path: string, profileId?: string): Promise<SFTPFileItem[]> {
-    const q = new URLSearchParams({ path });
-    if (profileId) q.set('profileId', profileId);
-    const res = await fetch(`${API_BASE}/sftp/list?${q.toString()}`, {
-      headers: this.getHeaders(),
-    });
-    if (!res.ok) {
+    try {
+      const q = new URLSearchParams({ path });
+      if (profileId) q.set('profileId', profileId);
+      const res = await fetch(`${API_BASE}/sftp/list?${q.toString()}`, {
+        headers: this.getHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const items = Array.isArray(data) ? data : data.items || [];
+        return items.map((item: any) => ({
+          name: item.filename || item.name,
+          path: `${path.replace(/\/$/, '')}/${item.filename || item.name}`,
+          type: item.isDirectory ? 'directory' : item.isSymbolicLink ? 'symlink' : 'file',
+          size: item.size || 0,
+          permissions: item.permissions || '0644',
+          modifyTime: item.modifyTime ? (typeof item.modifyTime === 'number' ? item.modifyTime : new Date(item.modifyTime).getTime()) : Date.now(),
+          owner: item.uid ? String(item.uid) : 'user',
+        }));
+      }
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || `HTTP ${res.status}: Failed to list directory`);
+      throw new Error(err.error || err.message || `Failed to list directory: ${path}`);
+    } catch (e: any) {
+      if (e.message && e.message.includes('fetch')) {
+        throw new Error('NodeSSH backend server is unreachable. Ensure the backend is running on port 3001.');
+      }
+      throw e;
     }
-    const data = await res.json();
-    const items = Array.isArray(data) ? data : data.items || [];
-    return items.map((item: any) => ({
-      name: item.filename || item.name,
-      path: `${path.replace(/\/$/, '')}/${item.filename || item.name}`,
-      type: item.isDirectory ? 'directory' : item.isSymbolicLink ? 'symlink' : 'file',
-      size: item.size || 0,
-      permissions: item.permissions || '0644',
-      modifyTime: item.modifyTime ? (typeof item.modifyTime === 'number' ? item.modifyTime : new Date(item.modifyTime).getTime()) : Date.now(),
-      owner: item.uid ? String(item.uid) : 'user',
-    }));
   }
 
   async readSftpFile(filePath: string, profileId?: string): Promise<string> {
-    const q = new URLSearchParams({ path: filePath });
-    if (profileId) q.set('profileId', profileId);
-    const res = await fetch(`${API_BASE}/sftp/read?${q.toString()}`, {
-      headers: this.getHeaders(),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || `Failed to read file: ${filePath}`);
-    }
-    const text = await res.text();
     try {
-      const json = JSON.parse(text);
-      return json.content !== undefined ? json.content : text;
-    } catch {
-      return text;
+      const q = new URLSearchParams({ path: filePath });
+      if (profileId) q.set('profileId', profileId);
+      const res = await fetch(`${API_BASE}/sftp/read?${q.toString()}`, {
+        headers: this.getHeaders(),
+      });
+      if (res.ok) {
+        const text = await res.text();
+        try {
+          const json = JSON.parse(text);
+          return json.content !== undefined ? json.content : text;
+        } catch {
+          return text;
+        }
+      }
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || err.message || `Failed to read remote file: ${filePath}`);
+    } catch (e: any) {
+      if (e.message && e.message.includes('fetch')) {
+        throw new Error('NodeSSH backend server is unreachable.');
+      }
+      throw e;
     }
   }
 
@@ -518,47 +520,149 @@ class ApiClient {
         body: JSON.stringify({ path: filePath, content, profileId }),
       });
       if (res.ok) return;
-    } catch {}
-    MOCK_FILE_CONTENTS[filePath] = content;
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || err.message || `Failed to write file to ${filePath}`);
+    } catch (e: any) {
+      if (e.message && e.message.includes('fetch')) {
+        throw new Error('NodeSSH backend server is unreachable.');
+      }
+      throw e;
+    }
   }
 
   async createSftpFolder(dirPath: string, profileId?: string): Promise<void> {
     try {
-      await fetch(`${API_BASE}/sftp/mkdir`, {
+      const res = await fetch(`${API_BASE}/sftp/mkdir`, {
         method: 'POST',
         headers: this.getHeaders(),
         body: JSON.stringify({ path: dirPath, profileId }),
       });
-    } catch {}
+      if (res.ok) return;
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || err.message || `Failed to create remote directory: ${dirPath}`);
+    } catch (e: any) {
+      if (e.message && e.message.includes('fetch')) {
+        throw new Error('NodeSSH backend server is unreachable.');
+      }
+      throw e;
+    }
   }
 
   async chmodSftpFile(filePath: string, mode: string | number, profileId?: string): Promise<void> {
     try {
-      await fetch(`${API_BASE}/sftp/chmod`, {
+      const res = await fetch(`${API_BASE}/sftp/chmod`, {
         method: 'POST',
         headers: this.getHeaders(),
         body: JSON.stringify({ path: filePath, mode, profileId }),
       });
-    } catch {}
+      if (res.ok) return;
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || err.message || `Failed to update permissions on ${filePath}`);
+    } catch (e: any) {
+      if (e.message && e.message.includes('fetch')) {
+        throw new Error('NodeSSH backend server is unreachable.');
+      }
+      throw e;
+    }
   }
 
   async deleteSftpFile(filePath: string, isDirectory: boolean = false, profileId?: string): Promise<void> {
     try {
-      await fetch(`${API_BASE}/sftp/delete`, {
+      const res = await fetch(`${API_BASE}/sftp/delete`, {
         method: 'POST',
         headers: this.getHeaders(),
         body: JSON.stringify({ path: filePath, isDirectory, profileId }),
       });
-    } catch {}
+      if (res.ok) return;
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || err.message || `Failed to delete ${filePath}`);
+    } catch (e: any) {
+      if (e.message && e.message.includes('fetch')) {
+        throw new Error('NodeSSH backend server is unreachable.');
+      }
+      throw e;
+    }
+  }
+
+  async downloadSftpWithProgress(
+    remotePath: string,
+    profileId?: string,
+    isDirectory?: boolean,
+    onProgress?: (percent: number, loaded: number, total: number) => void,
+    signal?: AbortSignal
+  ): Promise<Blob> {
+    const q = new URLSearchParams({ path: remotePath });
+    if (profileId) q.set('profileId', profileId);
+
+    const token = storage.getToken();
+    const res = await fetch(`${API_BASE}/sftp/download?${q.toString()}`, {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      signal,
+    });
+
+    if (!res.ok) {
+      let errText = 'Download failed';
+      try {
+        const errJson = await res.json();
+        if (errJson.error) errText = errJson.error;
+      } catch {}
+      throw new Error(errText);
+    }
+
+    if (!res.body) {
+      const blob = await res.blob();
+      if (onProgress) onProgress(100, blob.size, blob.size);
+      return blob;
+    }
+
+    const contentLength = res.headers.get('Content-Length');
+    const total = contentLength ? parseInt(contentLength, 10) : 0;
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let loaded = 0;
+
+    try {
+      while (true) {
+        if (signal?.aborted) {
+          reader.cancel().catch(() => {});
+          throw new DOMException('Download aborted', 'AbortError');
+        }
+
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          chunks.push(value);
+          loaded += value.length;
+          const percent = total > 0 ? Math.min(99, Math.round((loaded / total) * 100)) : 0;
+          if (onProgress) onProgress(percent, loaded, total);
+        }
+      }
+    } catch (e: any) {
+      if (e.name === 'AbortError' || signal?.aborted) {
+        throw new Error('Download aborted');
+      }
+      throw e;
+    }
+
+    if (onProgress) onProgress(100, loaded, total || loaded);
+    const mimeType = isDirectory ? 'application/zip' : 'application/octet-stream';
+    return new Blob(chunks as any[], { type: mimeType });
   }
 
   async uploadSftpFile(
     file: File,
     remoteDir: string,
     profileId?: string,
-    onProgress?: (percent: number, loaded: number, total: number) => void
+    onProgress?: (percent: number, loaded: number, total: number) => void,
+    signal?: AbortSignal
   ): Promise<void> {
     return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        return reject(new Error('Upload aborted'));
+      }
+
       const formData = new FormData();
       formData.append('file', file);
       formData.append('remoteDir', remoteDir);
@@ -572,6 +676,14 @@ class ApiClient {
         xhr.setRequestHeader('Authorization', `Bearer ${token}`);
       }
 
+      const onAbortHandler = () => {
+        xhr.abort();
+      };
+
+      if (signal) {
+        signal.addEventListener('abort', onAbortHandler);
+      }
+
       if (xhr.upload) {
         xhr.upload.onprogress = (event) => {
           if (event.lengthComputable && onProgress) {
@@ -582,6 +694,7 @@ class ApiClient {
       }
 
       xhr.onload = () => {
+        if (signal) signal.removeEventListener('abort', onAbortHandler);
         if (xhr.status >= 200 && xhr.status < 300) {
           if (onProgress) onProgress(100, file.size, file.size);
           resolve();
@@ -596,15 +709,69 @@ class ApiClient {
       };
 
       xhr.onerror = () => {
+        if (signal) signal.removeEventListener('abort', onAbortHandler);
         reject(new Error('Network error during upload'));
       };
 
       xhr.onabort = () => {
+        if (signal) signal.removeEventListener('abort', onAbortHandler);
         reject(new Error('Upload aborted'));
       };
 
       xhr.send(formData);
     });
+  }
+
+  async remoteExtract(archivePath: string, targetDir?: string, profileId?: string): Promise<{ message: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/sftp/extract`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify({ archivePath, targetDir, profileId }),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || err.message || `Failed to extract archive: ${archivePath}`);
+    } catch (e: any) {
+      if (e.message && e.message.includes('fetch')) {
+        throw new Error('NodeSSH backend server is unreachable.');
+      }
+      throw e;
+    }
+  }
+
+  async remoteCompress(sourcePaths: string[], targetArchive: string, profileId?: string): Promise<{ message: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/sftp/compress`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify({ sourcePaths, targetArchive, profileId }),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || err.message || `Failed to compress files to: ${targetArchive}`);
+    } catch (e: any) {
+      if (e.message && e.message.includes('fetch')) {
+        throw new Error('NodeSSH backend server is unreachable.');
+      }
+      throw e;
+    }
+  }
+
+  async abortTransfer(transferId: string): Promise<void> {
+    try {
+      await fetch(`${API_BASE}/sftp/transfer/abort`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify({ transferId }),
+      });
+    } catch {
+      // Ignore network abort errors
+    }
   }
 }
 

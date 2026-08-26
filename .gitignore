@@ -1,52 +1,33 @@
 # Dependencies
 node_modules/
-.pnp
-.pnp.js
+*/node_modules/
 
-# Production builds
+# Production / Distribution Builds
 dist/
-build/
 client/dist/
 server/dist/
+electron/dist/
 
-# Environment variables & secrets
+# Environment Variables & Secrets
 .env
-.env.local
-.env.*.local
-*.pem
-*.key
-*.ppk
-id_rsa
-id_ed25519
+.env.*
+!.env.example
 
-# Data, database files & exports
-data/
-server/data/
-*.sqlite
-*.sqlite3
-*.db
-*.log
-nodessh-profiles.json
-nodessh-keys.json
-nodessh-export*.json
-*.mxtsessions
+# Local Data & Database Files
+server/data/*
+!server/data/.gitkeep
+nodessh-drag/
 
-# Logs
+# KBS Shared local sync
+_kbs_shared/
+
+# Logs & Testing Artifacts
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+playwright-report/
+test-results/
 
-# Editor & OS files
+# OS Specific Files
 .DS_Store
 Thumbs.db
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Temporary directories
-tmp/
-temp/
-_kbs_shared/

@@ -18,6 +18,7 @@ export interface SSHConnectionOptions {
   passphrase?: string;
   jumpHostId?: string;
   keepaliveInterval?: number;
+  sftpCommand?: string;
 }
 
 export interface SSHConnectionResult {

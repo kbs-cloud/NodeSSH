@@ -26,32 +26,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultCloseOnExit: true,
   defaultKeepalive: 30,
   lanIp: '192.168.1.100',
+  copyOnSelect: true,
+  rightClickPaste: true,
+  confirmMultiLinePaste: true,
 };
 
 class StorageService {
-  constructor() {
-    this.purgeLegacyMockStorage();
-  }
-
-  private purgeLegacyMockStorage(): void {
-    if (typeof window === 'undefined' || !window.localStorage) return;
-    try {
-      const legacyKeys = [
-        'nodessh_profiles',
-        'nodessh_keys',
-        'nodessh_tunnels',
-        'nodessh_snippets',
-        'nodessh_v2_profiles',
-        'nodessh_v2_keys',
-        'nodessh_v2_tunnels',
-        'nodessh_v2_snippets',
-      ];
-      for (const k of legacyKeys) {
-        localStorage.removeItem(k);
-      }
-    } catch {}
-  }
-
   // Profiles
   getProfiles(): ServerProfile[] {
     const data = localStorage.getItem(STORAGE_KEYS.PROFILES);

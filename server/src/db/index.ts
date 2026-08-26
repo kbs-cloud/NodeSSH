@@ -63,6 +63,7 @@ function initSchema(db: DatabaseType): void {
       jump_host_id TEXT,
       initial_dir TEXT,
       startup_command TEXT,
+      sftp_command TEXT,
       keepalive_interval INTEGER NOT NULL DEFAULT 15,
       close_on_exit INTEGER NOT NULL DEFAULT 1,
       tags TEXT,
@@ -132,6 +133,10 @@ function initSchema(db: DatabaseType): void {
     CREATE INDEX IF NOT EXISTS idx_known_hosts_user ON known_hosts(user_id);
     CREATE INDEX IF NOT EXISTS idx_users_sso ON users(sso_id);
   `);
+
+  try {
+    db.exec('ALTER TABLE profiles ADD COLUMN sftp_command TEXT;');
+  } catch {}
 
   try {
     db.prepare(`
