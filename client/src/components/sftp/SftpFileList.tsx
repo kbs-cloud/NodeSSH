@@ -179,6 +179,7 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
 
                   const token = localStorage.getItem('nodessh_token') || '';
                   if (isElectron) {
+                    e.preventDefault();
                     (window as any).electronAPI.startDrag({
                       path: file.path,
                       name: file.name,
@@ -186,6 +187,7 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
                       profileId,
                       token,
                     });
+                    return;
                   }
 
                   // Standard Chromium desktop drag-to-download format & browser/fallback

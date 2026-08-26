@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, nativeImage } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -15,29 +15,29 @@ const SERVER_URL = `http://${SERVER_HOST}:${SERVER_PORT}`;
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 const VITE_DEV_URL = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173';
 
-// 32x32 transparent/standard PNG icon for native drag-and-drop
-const DEFAULT_ICON_BASE64 =
-  'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAuSURBVHgB7cxBDQAABAIw/ad29x1EQIAb77vSJEiQIEGCBAkSJEiQIEGCBAkSPAnzXwL/6bK5awAAAABJRU5ErkJggg==';
+// 100% valid standard PNG icon (1x1 transparent) for native drag-and-drop
+const VALID_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAAElFTkSuQmCC';
 
 /**
  * Ensures the drag temporary folder and icon file exist.
  */
-function getStagingDir(): { stagingDir: string; iconPath: string } {
+function getStagingDir(): { stagingDir: string; icon: any; iconPath: string } {
   const stagingDir = path.join(os.tmpdir(), 'nodessh-drag');
   if (!fs.existsSync(stagingDir)) {
     fs.mkdirSync(stagingDir, { recursive: true });
   }
 
   const iconPath = path.join(stagingDir, 'drag-icon.png');
-  if (!fs.existsSync(iconPath)) {
-    try {
-      fs.writeFileSync(iconPath, Buffer.from(DEFAULT_ICON_BASE64, 'base64'));
-    } catch (err) {
-      console.error('[Electron] Failed to create drag icon:', err);
-    }
+  const pngBuffer = Buffer.from(VALID_PNG_BASE64, 'base64');
+  try {
+    fs.writeFileSync(iconPath, pngBuffer);
+  } catch (err) {
+    console.error('[Electron] Failed to write drag icon:', err);
   }
 
-  return { stagingDir, iconPath };
+  const icon = nativeImage.createFromBuffer(pngBuffer);
+  return { stagingDir, icon, iconPath };
 }
 
 /**
@@ -218,8 +218,9 @@ function registerIpcHandlers(): void {
       fileInfo: { path: string; name: string; isDirectory: boolean; profileId?: string; token?: string }
     ) => {
       try {
-        const { stagingDir, iconPath } = getStagingDir();
-        const safeName = fileInfo.name || path.basename(fileInfo.path) || 'file';
+        const { stagingDir, icon, iconPath } = getStagingDir();
+        const cleanPath = (fileInfo.path || '').replace(/\\/g, '/');
+        const safeName = fileInfo.name || path.posix.basename(cleanPath) || 'file';
 
         const q = new URLSearchParams({ path: fileInfo.path });
         if (fileInfo.profileId) {
@@ -274,7 +275,7 @@ function registerIpcHandlers(): void {
           console.log(`[Electron] Triggering native drag for directory: ${targetDir}`);
           event.sender.startDrag({
             file: targetDir,
-            icon: iconPath,
+            icon: icon || iconPath,
           });
         } else {
           // It's a single file
@@ -284,7 +285,7 @@ function registerIpcHandlers(): void {
           console.log(`[Electron] Triggering native drag for file: ${targetFilePath}`);
           event.sender.startDrag({
             file: targetFilePath,
-            icon: iconPath,
+            icon: icon || iconPath,
           });
         }
       } catch (err) {

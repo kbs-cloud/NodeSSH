@@ -261,19 +261,20 @@ router.get('/download', async (req: AuthenticatedRequest, res: Response) => {
 
     session = await openSFTPSession({ userId, profileId });
     const stat = await sftpStat(session.sftp, remotePath);
-    const basename = path.basename(remotePath) || 'download';
+    const cleanPath = remotePath.replace(/\\/g, '/');
+    const basename = path.posix.basename(cleanPath) || 'download';
 
     if (stat.isDirectory) {
       // Directory download -> Stream as ZIP archive
       const zipFilename = `${basename}.zip`;
-      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(zipFilename)}"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"; filename*=UTF-8''${encodeURIComponent(zipFilename)}`);
       res.setHeader('Content-Type', 'application/zip');
 
       await sftpStreamDirectoryAsZip(session.sftp, remotePath, res);
       if (session) session.close();
     } else {
       // Single file download -> Stream raw bytes
-      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(basename)}"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${basename}"; filename*=UTF-8''${encodeURIComponent(basename)}`);
       res.setHeader('Content-Type', 'application/octet-stream');
 
       const stream = session.sftp.createReadStream(remotePath);
