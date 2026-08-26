@@ -376,7 +376,6 @@ export async function sftpStreamDirectoryAsZip(
     }
   }
 
-  const baseDirName = path.basename(normalizedPath) || 'folder';
-  await traverse(normalizedPath, baseDirName);
+  await traverse(normalizedPath, '');
   await archive.finalize();
 }
