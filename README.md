@@ -113,7 +113,7 @@ NodeSSH/
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/NodeSSH.git
+git clone https://github.com/kbs-cloud/NodeSSH.git
 cd NodeSSH
 
 # Install dependencies for root, server, and client
