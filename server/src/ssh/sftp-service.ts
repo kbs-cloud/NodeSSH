@@ -352,6 +352,13 @@ export async function sftpStreamDirectoryAsZip(
     } catch {}
   });
 
+  const finishPromise = new Promise<void>((resolve, reject) => {
+    archive.on('end', () => resolve());
+    archive.on('finish', () => resolve());
+    archive.on('error', (err: any) => reject(err));
+    outputStream.on('finish', () => resolve());
+  });
+
   archive.pipe(outputStream);
 
   async function traverse(currentDir: string, relativePrefix: string = '') {
@@ -370,12 +377,23 @@ export async function sftpStreamDirectoryAsZip(
           // Ignore permission errors on subfolders
         }
       } else {
-        const fileStream = sftp.createReadStream(itemFullPath);
-        archive.append(fileStream, { name: itemRelPath, mode: item.mode });
+        try {
+          const fileBuffer = await new Promise<Buffer>((resolve) => {
+            const chunks: Buffer[] = [];
+            const readStream = sftp.createReadStream(itemFullPath);
+            readStream.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+            readStream.on('end', () => resolve(Buffer.concat(chunks)));
+            readStream.on('error', () => resolve(Buffer.alloc(0)));
+          });
+          archive.append(fileBuffer, { name: itemRelPath, mode: item.mode });
+        } catch {
+          // Ignore unreadable files
+        }
       }
     }
   }
 
   await traverse(normalizedPath, '');
   await archive.finalize();
+  await finishPromise;
 }
