@@ -86,20 +86,22 @@ async function ensureBackendServer(): Promise<void> {
     return;
   }
 
-  console.log('[Electron] Starting embedded backend server...');
   const appRoot = path.resolve(__dirname, '..', '..');
   const serverDist = path.join(appRoot, 'server', 'dist', 'index.js');
   const serverSrc = path.join(appRoot, 'server', 'src', 'index.ts');
 
+  const nodeCmd = process.platform === 'win32' ? 'node.exe' : 'node';
+  const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+
   if (fs.existsSync(serverDist)) {
-    serverProcess = spawn(process.execPath, [serverDist], {
+    serverProcess = spawn(nodeCmd, [serverDist], {
       cwd: path.join(appRoot, 'server'),
       env: { ...process.env, PORT: String(SERVER_PORT) },
       stdio: 'inherit',
+      shell: true,
     });
   } else if (fs.existsSync(serverSrc)) {
     // In development fallback to npx tsx
-    const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
     serverProcess = spawn(npxCmd, ['tsx', 'src/index.ts'], {
       cwd: path.join(appRoot, 'server'),
       env: { ...process.env, PORT: String(SERVER_PORT) },
