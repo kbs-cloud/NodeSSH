@@ -99,30 +99,42 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
     setPathInput(sftpCurrentPath);
   }, [sftpCurrentPath]);
 
-  // Set initial home directory based on profile username if at default
+  // Set initial home directory based on profile configuration
   useEffect(() => {
-    if (activeProfile?.username && sftpCurrentPath === '/home/ubuntu' && activeProfile.username !== 'ubuntu') {
-      const userHome = `/home/${activeProfile.username}`;
-      setSftpCurrentPath(userHome);
-      setPathInput(userHome);
+    if (activeProfile?.defaultPath) {
+      setSftpCurrentPath(activeProfile.defaultPath);
+      setPathInput(activeProfile.defaultPath);
+    } else if (activeProfile?.username) {
+      const userHome = activeProfile.username === 'root' ? '/root' : `/home/${activeProfile.username}`;
+      if (!sftpCurrentPath || sftpCurrentPath === '/' || sftpCurrentPath.includes('ubuntu')) {
+        setSftpCurrentPath(userHome);
+        setPathInput(userHome);
+      }
+    } else if (!sftpCurrentPath) {
+      setSftpCurrentPath('/');
+      setPathInput('/');
     }
-  }, [activeProfile, setSftpCurrentPath, sftpCurrentPath]);
+  }, [activeProfile?.id, activeProfile?.username, activeProfile?.defaultPath]);
 
   const loadFiles = useCallback(async () => {
+    if (!sftpCurrentPath) return;
     setIsLoading(true);
     try {
       const list = await api.listSftpFiles(sftpCurrentPath, profileId);
       setFiles(list);
-    } catch {
-      showToast('Failed to load remote directory files', 'error');
+    } catch (err: any) {
+      setFiles([]);
+      showToast(err.message || 'Failed to load remote directory files', 'error');
     } finally {
       setIsLoading(false);
     }
   }, [sftpCurrentPath, profileId, showToast]);
 
   useEffect(() => {
-    loadFiles();
-  }, [loadFiles]);
+    if (sftpCurrentPath) {
+      loadFiles();
+    }
+  }, [loadFiles, sftpCurrentPath]);
 
   const handleNavigate = (newPath: string) => {
     let clean = newPath.trim();

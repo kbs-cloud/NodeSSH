@@ -70,7 +70,7 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // SFTP state
   const [isSftpDocked, setIsSftpDocked] = useState<boolean>(false);
   const [sftpDockPosition, setSftpDockPosition] = useState<'left' | 'right'>('right');
-  const [sftpCurrentPath, setSftpCurrentPath] = useState<string>('/home/ubuntu');
+  const [sftpCurrentPath, setSftpCurrentPath] = useState<string>('');
 
   // Sessions map reference (to avoid re-rendering entire tree on input)
   const sessionsRef = useRef<Map<string, TerminalSession>>(new Map());
