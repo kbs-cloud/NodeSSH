@@ -162,48 +162,48 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
     }
   };
 
+  // Single file uploader with live progress tracking
+  const uploadSingleFile = async (file: File) => {
+    setUploadFileName(file.name);
+    setUploadProgress(0);
+
+    try {
+      await api.uploadSftpFile(file, sftpCurrentPath, profileId, (percent) => {
+        setUploadProgress(percent);
+      });
+
+      // Explicitly show 100% completion before clearing
+      setUploadProgress(100);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setUploadProgress(null);
+      showToast(`Uploaded "${file.name}" successfully`, 'success');
+      loadFiles();
+    } catch (err: any) {
+      setUploadProgress(null);
+      showToast(`Failed to upload ${file.name}: ${err.message}`, 'error');
+    }
+  };
+
   // Drag and Drop Upload Handler
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
 
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      setUploadFileName(file.name);
-      setUploadProgress(20);
-
-      try {
-        await api.uploadSftpFile(file, sftpCurrentPath, profileId);
-        setUploadProgress(100);
-        setTimeout(() => {
-          setUploadProgress(null);
-          showToast(`Uploaded ${file.name} successfully`, 'success');
-          loadFiles();
-        }, 300);
-      } catch (err: any) {
-        setUploadProgress(null);
-        showToast(`Failed to upload ${file.name}: ${err.message}`, 'error');
+      const filesToUpload = Array.from(e.dataTransfer.files);
+      for (const file of filesToUpload) {
+        await uploadSingleFile(file);
       }
     }
   };
 
   const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const file = e.target.files[0];
-      setUploadFileName(file.name);
-      setUploadProgress(20);
-      try {
-        await api.uploadSftpFile(file, sftpCurrentPath, profileId);
-        setUploadProgress(100);
-        setTimeout(() => {
-          setUploadProgress(null);
-          showToast(`Uploaded ${file.name} to ${sftpCurrentPath}`, 'success');
-          loadFiles();
-        }, 300);
-      } catch (err: any) {
-        setUploadProgress(null);
-        showToast(`Upload failed: ${err.message}`, 'error');
+      const filesToUpload = Array.from(e.target.files);
+      for (const file of filesToUpload) {
+        await uploadSingleFile(file);
       }
+      e.target.value = '';
     }
   };
 

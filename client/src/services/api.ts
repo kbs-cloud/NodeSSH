@@ -558,25 +558,59 @@ class ApiClient {
     } catch {}
   }
 
-  async uploadSftpFile(file: File, remoteDir: string, profileId?: string): Promise<void> {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('remoteDir', remoteDir);
-    if (profileId) formData.append('profileId', profileId);
+  async uploadSftpFile(
+    file: File,
+    remoteDir: string,
+    profileId?: string,
+    onProgress?: (percent: number, loaded: number, total: number) => void
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('remoteDir', remoteDir);
+      if (profileId) formData.append('profileId', profileId);
 
-    const headers: Record<string, string> = {};
-    const token = storage.getToken();
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_BASE}/sftp/upload`);
 
-    const res = await fetch(`${API_BASE}/sftp/upload`, {
-      method: 'POST',
-      headers,
-      body: formData,
+      const token = storage.getToken();
+      if (token) {
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      }
+
+      if (xhr.upload) {
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable && onProgress) {
+            const percent = Math.min(99, Math.round((event.loaded / event.total) * 100));
+            onProgress(percent, event.loaded, event.total);
+          }
+        };
+      }
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          if (onProgress) onProgress(100, file.size, file.size);
+          resolve();
+        } else {
+          let errText = 'Upload failed';
+          try {
+            const json = JSON.parse(xhr.responseText);
+            if (json.error) errText = json.error;
+          } catch {}
+          reject(new Error(errText));
+        }
+      };
+
+      xhr.onerror = () => {
+        reject(new Error('Network error during upload'));
+      };
+
+      xhr.onabort = () => {
+        reject(new Error('Upload aborted'));
+      };
+
+      xhr.send(formData);
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to upload file');
-    }
   }
 }
 
