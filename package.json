@@ -2,18 +2,27 @@
   "name": "nodessh",
   "version": "1.0.0",
   "description": "A modern web-based MobaXterm alternative with SSH, SFTP, Tunneling, Key Management, and Multi-user SSO",
-  "private": true,
+  "main": "electron/dist/main.js",
   "scripts": {
     "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
     "dev:server": "npm run dev --prefix server",
     "dev:client": "npm run dev --prefix client",
     "build": "npm run build --prefix client && npm run build --prefix server",
     "start": "npm start --prefix server",
+    "electron:build": "tsc -p electron/tsconfig.json",
+    "electron:dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\" \"wait-on http://localhost:5173 && npm run electron:build && electron .\"",
+    "electron:start": "npm run electron:build && electron .",
     "install:all": "npm install && npm install --prefix server && npm install --prefix client"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
-    "concurrently": "^9.1.2"
+    "@types/adm-zip": "^0.5.8",
+    "@types/node": "^26.3.0",
+    "adm-zip": "^0.6.0",
+    "concurrently": "^9.1.2",
+    "electron": "^44.0.0",
+    "typescript": "^7.0.2",
+    "wait-on": "^9.1.0"
   },
   "keywords": [
     "ssh",

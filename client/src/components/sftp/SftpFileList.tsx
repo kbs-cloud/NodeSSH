@@ -170,13 +170,23 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
                 key={file.path}
                 draggable={true}
                 onDragStart={(e) => {
+                  const isElectron = Boolean((window as any).electronAPI?.startDrag);
                   const mimeType = isDir ? 'application/zip' : 'application/octet-stream';
                   const downloadName = isDir ? `${file.name}.zip` : file.name;
                   const q = new URLSearchParams({ path: file.path });
                   if (profileId) q.set('profileId', profileId);
                   const downloadUrl = `${window.location.origin}/api/sftp/download?${q.toString()}`;
 
-                  // Standard Chromium desktop drag-to-download format
+                  if (isElectron) {
+                    (window as any).electronAPI.startDrag({
+                      path: file.path,
+                      name: file.name,
+                      isDirectory: isDir,
+                      profileId,
+                    });
+                  }
+
+                  // Standard Chromium desktop drag-to-download format & browser/fallback
                   e.dataTransfer.setData('DownloadURL', `${mimeType}:${downloadName}:${downloadUrl}`);
                   e.dataTransfer.setData('application/json', JSON.stringify({ file, profileId }));
                   e.dataTransfer.setData('text/plain', file.path);

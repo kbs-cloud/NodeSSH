@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Terminal as TerminalIcon,
   Radio,
@@ -11,6 +11,10 @@ import {
   User,
   Check,
   ChevronDown,
+  Minus,
+  Square,
+  X,
+  Copy,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useTerminal } from '../../context/TerminalContext';
@@ -41,11 +45,45 @@ export const Header: React.FC = () => {
 
   const [isThemeOpen, setIsThemeOpen] = useState(false);
   const [isSnippetsOpen, setIsSnippetsOpen] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  const isElectron = Boolean(typeof window !== 'undefined' && (window as any).electronAPI?.isElectron);
+
+  useEffect(() => {
+    if (isElectron && (window as any).electronAPI?.isMaximized) {
+      (window as any).electronAPI.isMaximized().then((max: boolean) => setIsMaximized(max)).catch(() => {});
+    }
+  }, [isElectron]);
+
+  const handleMinimize = () => {
+    (window as any).electronAPI?.minimize?.();
+  };
+
+  const handleMaximize = async () => {
+    (window as any).electronAPI?.maximize?.();
+    if ((window as any).electronAPI?.isMaximized) {
+      try {
+        const max = await (window as any).electronAPI.isMaximized();
+        setIsMaximized(max);
+      } catch {
+        setIsMaximized(prev => !prev);
+      }
+    } else {
+      setIsMaximized(prev => !prev);
+    }
+  };
+
+  const handleClose = () => {
+    (window as any).electronAPI?.close?.();
+  };
 
   return (
-    <header className="h-12 bg-[var(--theme-bg-dark,#070913)] border-b border-[var(--theme-border,#1e2640)] px-3 flex items-center justify-between gap-3 select-none z-30">
+    <header
+      className="h-12 bg-[var(--theme-bg-dark,#070913)] border-b border-[var(--theme-border,#1e2640)] px-3 flex items-center justify-between gap-3 select-none z-30"
+      style={{ WebkitAppRegion: isElectron ? 'drag' : undefined } as React.CSSProperties}
+    >
       {/* Left: Brand Logo */}
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-center gap-2.5" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
         <button
           onClick={() => setActiveView('terminals')}
           className="flex items-center gap-2 hover:opacity-90 transition-opacity"
@@ -65,12 +103,15 @@ export const Header: React.FC = () => {
       </div>
 
       {/* Center: Quick Connect Bar */}
-      <div className="hidden lg:flex items-center flex-1 max-w-xl justify-center px-4">
+      <div
+        className="hidden lg:flex items-center flex-1 max-w-xl justify-center px-4"
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      >
         <QuickConnectBar />
       </div>
 
       {/* Right Toolbar Controls */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
         {/* Multi-Exec Broadcast Toggle */}
         <button
           onClick={toggleMultiExec}
@@ -172,6 +213,43 @@ export const Header: React.FC = () => {
             {user?.username || 'Sign In'}
           </span>
         </button>
+
+        {/* Electron Cyberpunk Window Controls */}
+        {isElectron && (
+          <div
+            className="flex items-center gap-1 pl-2 ml-1 border-l border-white/10"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          >
+            <button
+              onClick={handleMinimize}
+              className="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/15 border border-transparent hover:border-cyan-500/30 transition-all font-mono"
+              title="Minimize"
+              aria-label="Minimize"
+            >
+              <Minus className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={handleMaximize}
+              className="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/15 border border-transparent hover:border-cyan-500/30 transition-all font-mono"
+              title={isMaximized ? "Restore" : "Maximize"}
+              aria-label={isMaximized ? "Restore" : "Maximize"}
+            >
+              {isMaximized ? (
+                <Copy className="w-3 h-3 rotate-90" />
+              ) : (
+                <Square className="w-3 h-3" />
+              )}
+            </button>
+            <button
+              onClick={handleClose}
+              className="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:text-rose-300 hover:bg-rose-600/30 border border-transparent hover:border-rose-500/40 transition-all font-mono"
+              title="Close"
+              aria-label="Close"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );

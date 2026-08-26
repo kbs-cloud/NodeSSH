@@ -168,3 +168,25 @@ export interface QuickConnectParams {
   saveAsProfile?: boolean;
   profileName?: string;
 }
+
+export interface ElectronAPI {
+  isElectron: boolean;
+  startDrag: (fileInfo: {
+    path: string;
+    name: string;
+    isDirectory: boolean;
+    profileId?: string;
+  }) => void;
+  minimize: () => void;
+  maximize: () => void;
+  close: () => void;
+  isMaximized: () => Promise<boolean>;
+  openExternal: (url: string) => void;
+  showItemInFolder: (fullPath: string) => void;
+}
+
+declare global {
+  interface Window {
+    electronAPI?: ElectronAPI;
+  }
+}
