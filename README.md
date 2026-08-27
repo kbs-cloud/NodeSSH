@@ -41,18 +41,21 @@ Solves the common challenge of tunneling connections across local networks and g
 
 ### 🔐 5. Per-User AES-256 Encrypted SSH Key Vault & Security
 - **Encrypted Storage**: Private keys are securely encrypted at rest per user with AES-256-GCM.
+- **Drag-and-Drop Key Import**: Drag any private key file (`.pem`, `.ppk`, `id_rsa`, `id_ed25519`, `.key`, `.pub`) directly from your desktop or file manager into the Key Vault for instant type detection and import.
 - **Host Key Verification (TOFU)**: Trust-On-First-Use fingerprint verification modal and known-hosts database to prevent Man-In-The-Middle attacks.
 - **In-Browser Key Generator**: Create Ed25519 and RSA 4096-bit keypairs with one click.
-- **Key Importer**: Import OpenSSH, PEM, and PuTTY `.ppk` private keys.
+- **Key Importer**: Import OpenSSH, PEM, and PuTTY `.ppk` private keys with automatic format detection.
 - **1-Click Public Key Push (`ssh-copy-id`)**: Automatically authenticate with a password to push and install your public key into `~/.ssh/authorized_keys` with proper UNIX permissions.
 
-### 👥 6. Multi-User Authentication & KBS Cloud SSO
+### 👥 6. Multi-User Authentication & Persistent Storage
+- **Automatic Multi-Tier Data Persistence**: Profiles, encrypted keys, tunnels, snippets, and settings persist automatically to SQLite in `%APPDATA%\NodeSSH\data\nodessh.db` with local cache fallback and automatic two-way synchronization.
 - **Local Authentication**: Independent user accounts with `bcrypt` password hashing and JWT sessions.
 - **KBS Cloud SSO Integration**: Native OAuth / SSO support via `https://github.com/kbs-cloud/shared` with automatic offline/local fallback.
 - **Multi-Tenant Isolation**: Server profiles, encrypted keys, tunnels, snippets, and preferences are strictly isolated per user.
 
 ### ⚡ 7. Server Profiles & Snippet Library
 - **Server Profile Manager**: Group servers into folders, assign color tags, configure jump hosts, custom keepalives, startup commands, and terminal settings.
+- **Inline Connection Fallback**: Connect directly via quick-connect or saved credentials with automatic database record resolution.
 - **Import / Export**: Full support for NodeSSH JSON backups and MobaXterm (`.mxtsessions` / `.ini`) session exports/imports.
 - **Snippet Library**: Save commonly used commands and scripts for 1-click insertion or direct execution in the active terminal.
 
@@ -75,30 +78,29 @@ Solves the common challenge of tunneling connections across local networks and g
 
 ```
 NodeSSH/
-├── electron/                    # Electron Desktop App Layer
-│   ├── main.ts                  # Main process: Window management, IPC, backend lifecycle, drag-and-drop
-│   ├── preload.ts               # Secure context bridge API
-│   └── tsconfig.json            # Electron TypeScript configuration
-├── server/                      # Node.js + Express + TypeScript Backend
-│   ├── src/
-│   │   ├── auth/                # Local Auth (bcrypt + JWT) & KBS SSO
-│   │   ├── db/                  # SQLite / MongoDB database engines & migrations
-│   │   ├── ssh/                 # SSH2 manager, WebSocket PTY streamer, SFTP service
-│   │   ├── tunnels/             # Tunnel engine (-L, -R, -D SOCKS5, JumpHost)
-│   │   ├── routes/              # REST API controllers (profiles, keys, tunnels, snippets, system)
-│   │   └── index.ts             # Express HTTP + WebSocket server
-├── client/                      # React 19 + Vite + Tailwind CSS Frontend
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── terminal/        # @xterm/xterm tabs, split panes, multi-exec, paste modal
-│   │   │   ├── sftp/            # Dockable file explorer, code editor, permissions modal, transfers
-│   │   │   ├── tunnels/         # Visual tunnel dashboard & LAN helper
-│   │   │   ├── profiles/        # Profile manager, quick connect, MobaXterm importer
-│   │   │   ├── keys/            # Key vault, key generator, host key modal, ssh-copy-id
-│   │   │   ├── settings/        # Preferences & keyboard shortcuts modals
-│   │   │   └── auth/            # Local Login/Register & KBS SSO panel
-│   │   └── App.tsx              # Main application shell & state orchestration
-└── package.json                 # Monorepo root coordination & scripts
+├── src/
+│   ├── main/                    # Electron Main process & in-process backend
+│   │   ├── index.ts             # Main entry: Window lifecycle, in-process server initialization
+│   │   ├── ipc/                 # Electron IPC handlers (window controls, shell, native drag-and-drop)
+│   │   └── server/              # Embedded backend engine (Express + WebSockets + SSH2 + SQLite)
+│   │       ├── auth/            # Local Auth (bcrypt + JWT) & KBS SSO
+│   │       ├── db/              # SQLite database engine & schema migrations
+│   │       ├── ssh/             # SSH2 manager, WebSocket PTY streamer, SFTP service
+│   │       ├── tunnels/         # Tunnel engine (-L, -R, -D SOCKS5, JumpHost)
+│   │       ├── routes/          # REST API controllers (profiles, keys, tunnels, snippets, system)
+│   │       ├── ws/              # WebSocket terminal & SFTP handlers
+│   │       └── index.ts         # In-process server start/stop lifecycle
+│   ├── preload/                 # Electron Preload Bridge
+│   │   └── index.ts             # Secure contextBridge exposing window.electronAPI
+│   └── renderer/                # React 19 + Vite + Tailwind CSS Frontend UI
+│       ├── index.html           # HTML entry
+│       └── src/
+│           ├── components/      # Terminal tabs, split panes, SFTP, tunnels, profiles, key vault
+│           ├── services/        # ApiClient & Terminal WebSocket session managers
+│           └── App.tsx          # Application shell & state orchestration
+├── tsconfig.main.json           # Main & Preload TypeScript configuration
+├── vite.config.ts               # Root Vite configuration (bundles src/renderer to dist/renderer)
+└── package.json                 # Unified dependencies & scripts
 ```
 
 ---
@@ -116,53 +118,33 @@ NodeSSH/
 git clone https://github.com/kbs-cloud/NodeSSH.git
 cd NodeSSH
 
-# Install dependencies for root, server, and client
-npm run install:all
+# Install dependencies
+npm install --legacy-peer-deps
 ```
 
 ---
 
-### 🖥️ Running as Electron Desktop App
-
-To run NodeSSH as a native desktop application with full OS drag-and-drop:
+### 🖥️ Running NodeSSH (Electron Desktop)
 
 ```bash
-# Development Mode (Starts Backend, Frontend, and Electron with Hot-Reload)
-npm run electron:dev
-
-# Run Desktop App (Compiled)
-npm run electron:start
-```
-
----
-
-### 🌐 Running as Web Application
-
-#### Development Mode (Web)
-Start both the backend server (port `3001`) and Vite frontend (port `5173`):
-
-```bash
+# Start Vite and launch Electron with live reload:
 npm run dev
-```
-Open your browser to: **`http://localhost:5173`**
 
-#### Production Standalone Web Server
-Build the optimized client and compile the TypeScript backend into a single server:
-
-```bash
-# Build frontend and backend
+# Build both Renderer and Main processes:
 npm run build
 
-# Start production server (serves web UI, REST API, and WebSockets on port 3000)
+# Start the compiled production app:
 npm start
+
+# Run the backend test suite:
+npm test
 ```
-Access the application at: **`http://localhost:3000`**
 
 ---
 
 ## 🔧 Configuration Options
 
-Environment variables can be configured in a `.env` file in the `server/` directory:
+Environment variables can be optionally configured via `.env` file:
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |

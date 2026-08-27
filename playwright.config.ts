@@ -17,13 +17,13 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'npm run dev --prefix server',
+      command: 'npx tsx src/main/server/index.ts',
       port: 3001,
       timeout: 30000,
       reuseExistingServer: !process.env.CI,
     },
     {
-      command: 'npm run dev --prefix client',
+      command: 'npm run dev:renderer',
       port: 5173,
       timeout: 30000,
       reuseExistingServer: !process.env.CI,

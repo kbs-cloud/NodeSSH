@@ -14,8 +14,11 @@ electron/dist/
 !.env.example
 
 # Local Data & Database Files
+data/
+*.db
+*.db-wal
+*.db-shm
 server/data/*
-!server/data/.gitkeep
 nodessh-drag/
 
 # KBS Shared local sync
