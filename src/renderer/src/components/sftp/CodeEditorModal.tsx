@@ -29,31 +29,43 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({ file, onClose 
   const [showSearch, setShowSearch] = useState<boolean>(false);
 
   const isDirty = content !== initialContent;
+  const isLocalFile = (file as any)?.isLocal || file?.owner === 'local';
+  const effectiveProfile = (file as any)?.profileTarget || activeProfile;
 
   useEffect(() => {
     if (!file) return;
     setIsLoading(true);
-    api.readSftpFile(file.path, activeProfile)
+    const readPromise = isLocalFile
+      ? api.readLocalFile(file.path)
+      : api.readSftpFile(file.path, effectiveProfile);
+
+    readPromise
       .then(data => {
         setContent(data);
         setInitialContent(data);
         setIsLoading(false);
       })
-      .catch(() => {
-        setContent('# Error loading remote file');
+      .catch((err: any) => {
+        setContent(`# Error loading file: ${err.message || 'File read error'}`);
         setIsLoading(false);
       });
-  }, [file, activeProfile]);
+  }, [file, effectiveProfile, isLocalFile]);
 
   const handleSave = async () => {
     if (!file) return;
     setIsSaving(true);
     try {
-      await api.writeSftpFile(file.path, content, activeProfile);
-      setInitialContent(content);
-      showToast(`Saved ${file.name} to server`, 'success');
-    } catch {
-      showToast(`Failed to save ${file.name}`, 'error');
+      if (isLocalFile) {
+        await api.writeLocalFile(file.path, content);
+        setInitialContent(content);
+        showToast(`Saved ${file.name} locally`, 'success');
+      } else {
+        await api.writeSftpFile(file.path, content, effectiveProfile);
+        setInitialContent(content);
+        showToast(`Saved ${file.name} to server`, 'success');
+      }
+    } catch (err: any) {
+      showToast(`Failed to save ${file.name}: ${err.message || 'Write error'}`, 'error');
     } finally {
       setIsSaving(false);
     }

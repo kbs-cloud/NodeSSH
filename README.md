@@ -26,7 +26,13 @@
 - **Path Sync**: Quick button to jump the SFTP directory to the active terminal's current working directory.
 - **Transfer Progress**: Real-time progress banners for active uploads and downloads.
 
-### 💻 3. Cross-Platform Electron Desktop Application
+### 🗂️ 3. Split-Window Multi-Pane File Manager & Cross-Session Transfers
+- **Multi-Pane Split Window (File Mode)**: Dedicated File Manager accessible from the sidebar with 1-pane, 2-pane (50/50), 3-pane (33/33/33), and 4-pane (2x2 grid) layout modes.
+- **Independent Session Types Per Pane**: Connect any pane to Local Filesystem (Windows drives `C:\`, `D:\`, Home, Desktop, Downloads), standalone direct SFTP (no terminal shell required), or active terminal tabs.
+- **Cross-Session Transfers**: Drag-and-drop or transfer files and directories directly between any sessions (SFTP ➔ SFTP remote streaming, Local ➔ SFTP uploads, SFTP ➔ Local downloads, and Local ➔ Local copies).
+- **Transfer Queue & Abort Guards**: Real-time bottom drawer with live progress bars, subfile tracking, cancel support, and completion guards ensuring finished files and folders are never lost.
+
+### 💻 4. Cross-Platform Electron Desktop Application
 - **Frameless Cyberpunk UI**: Sleek, custom borderless window frame with integrated Minimize, Maximize/Restore, and Close controls.
 - **Self-Contained Lifecycle**: Automatically boots and manages the embedded background backend server process on launch.
 - **Native OS Shell Integration**: Direct deep linking, external browser opening, and local folder inspection.

@@ -771,6 +771,172 @@ AWS-Database=#109#0%db.internal.net%22%dbadmin%%-1%-1%%%22%%0%0%0%%-1%-1
     });
   });
 
+  describe('8. Local Filesystem REST API & Cross Transfers', () => {
+    const fs = require('fs');
+    const os = require('os');
+    const testLocalRoot = path.join(os.tmpdir(), `nodessh-local-test-${Date.now()}`);
+
+    before(() => {
+      fs.mkdirSync(testLocalRoot, { recursive: true });
+      fs.writeFileSync(path.join(testLocalRoot, 'hello.txt'), 'Hello Local World!', 'utf8');
+    });
+
+    after(() => {
+      try {
+        fs.rmSync(testLocalRoot, { recursive: true, force: true });
+      } catch {}
+    });
+
+    it('GET /api/local-files/drives returns drives and quick locations', async () => {
+      const res = await apiRequest('/api/local-files/drives', { token: sharedAuthToken });
+      assert.strictEqual(res.status, 200);
+      assert.ok(Array.isArray(res.data.drives));
+      assert.ok(res.data.drives.length > 0);
+      assert.ok(res.data.homeDir);
+    });
+
+    it('GET /api/local-files/list lists local files and directories', async () => {
+      const res = await apiRequest(`/api/local-files/list?path=${encodeURIComponent(testLocalRoot)}`, {
+        token: sharedAuthToken,
+      });
+      assert.strictEqual(res.status, 200);
+      assert.ok(Array.isArray(res.data.items));
+      const helloFile = res.data.items.find((i: any) => i.name === 'hello.txt');
+      assert.ok(helloFile);
+      assert.strictEqual(helloFile.type, 'file');
+      assert.strictEqual(helloFile.owner, 'local');
+    });
+
+    it('GET /api/local-files/read and POST /api/local-files/write work as expected', async () => {
+      const filePath = path.join(testLocalRoot, 'write-test.txt');
+      const writeRes = await apiRequest('/api/local-files/write', {
+        method: 'POST',
+        token: sharedAuthToken,
+        body: { path: filePath, content: 'Updated content from test' },
+      });
+      assert.strictEqual(writeRes.status, 200);
+
+      const readRes = await apiRequest(`/api/local-files/read?path=${encodeURIComponent(filePath)}`, {
+        token: sharedAuthToken,
+      });
+      assert.strictEqual(readRes.status, 200);
+      assert.strictEqual(readRes.data.content, 'Updated content from test');
+    });
+
+    it('POST /api/local-files/mkdir, rename, and delete work as expected', async () => {
+      const subDir = path.join(testLocalRoot, 'subfolder');
+      const mkdirRes = await apiRequest('/api/local-files/mkdir', {
+        method: 'POST',
+        token: sharedAuthToken,
+        body: { path: subDir },
+      });
+      assert.strictEqual(mkdirRes.status, 200);
+      assert.ok(fs.existsSync(subDir));
+
+      const renamedDir = path.join(testLocalRoot, 'renamed-folder');
+      const renameRes = await apiRequest('/api/local-files/rename', {
+        method: 'POST',
+        token: sharedAuthToken,
+        body: { oldPath: subDir, newPath: renamedDir },
+      });
+      assert.strictEqual(renameRes.status, 200);
+      assert.ok(fs.existsSync(renamedDir));
+      assert.ok(!fs.existsSync(subDir));
+
+      const deleteRes = await apiRequest('/api/local-files/delete', {
+        method: 'POST',
+        token: sharedAuthToken,
+        body: { path: renamedDir, isDirectory: true },
+      });
+      assert.strictEqual(deleteRes.status, 200);
+      assert.ok(!fs.existsSync(renamedDir));
+    });
+
+    it('POST /api/sftp/transfer-cross executes Local to Local transfer', async () => {
+      const srcFile = path.join(testLocalRoot, 'hello.txt');
+      const targetDir = path.join(testLocalRoot, 'target-folder');
+      fs.mkdirSync(targetDir, { recursive: true });
+
+      const res = await apiRequest('/api/sftp/transfer-cross', {
+        method: 'POST',
+        token: sharedAuthToken,
+        body: {
+          sourceType: 'local',
+          sourcePath: srcFile,
+          destType: 'local',
+          destDir: targetDir,
+        },
+      });
+
+      assert.strictEqual(res.status, 200);
+      assert.ok(res.data.success);
+      assert.ok(fs.existsSync(path.join(targetDir, 'hello.txt')));
+      assert.strictEqual(fs.readFileSync(path.join(targetDir, 'hello.txt'), 'utf8'), 'Hello Local World!');
+    });
+
+    it('sftpTransferLocalToRemote preserves completed files and created folders when cancelled', async () => {
+      const sourceFolder = path.join(testLocalRoot, 'src-batch');
+      fs.mkdirSync(sourceFolder, { recursive: true });
+      fs.writeFileSync(path.join(sourceFolder, 'file1.txt'), 'file 1 content', 'utf8');
+      fs.writeFileSync(path.join(sourceFolder, 'file2.txt'), 'file 2 content', 'utf8');
+
+      const writtenRemoteFiles = new Map<string, string>();
+      const createdRemoteDirs: string[] = [];
+      const abortController = new AbortController();
+
+      let streamCount = 0;
+      const mockDestSFTP: any = {
+        stat: (_p: string, cb: any) => {
+          cb(new Error('ENOENT'));
+        },
+        mkdir: (dir: string, _attrs: any, cb: any) => {
+          if (typeof _attrs === 'function') {
+            cb = _attrs;
+          }
+          createdRemoteDirs.push(dir);
+          if (cb) cb(null);
+        },
+        createWriteStream: (remotePath: string) => {
+          streamCount++;
+          const { Writable } = require('stream');
+          let chunks: Buffer[] = [];
+          const wStream = new Writable({
+            write(chunk, _enc, cb) {
+              chunks.push(chunk);
+              cb();
+            }
+          });
+          if (remotePath.includes('file2.txt')) {
+            // Trigger abort when file2 is being processed
+            abortController.abort();
+          }
+          wStream.on('finish', () => {
+            writtenRemoteFiles.set(remotePath, Buffer.concat(chunks).toString('utf8'));
+          });
+          return wStream;
+        }
+      };
+
+      const { sftpTransferLocalToRemote } = await import('../ssh/sftp-service');
+
+      await assert.rejects(async () => {
+        await sftpTransferLocalToRemote(sourceFolder, mockDestSFTP, '/remote/dest', {
+          signal: abortController.signal,
+        });
+      }, /Transfer aborted/);
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Verify that created remote directory was preserved!
+      assert.ok(createdRemoteDirs.some(d => d.includes('src-batch')), 'Remote folder must remain created');
+
+      // Verify that completed file1 was preserved!
+      const file1Entry = Array.from(writtenRemoteFiles.entries()).find(([k]) => k.includes('file1.txt'));
+      assert.ok(file1Entry, 'Completed file1.txt must remain on destination');
+      assert.strictEqual(file1Entry?.[1], 'file 1 content');
+    });
+  });
+
   after(async () => {
     try {
       const db = getDb();

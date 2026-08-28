@@ -136,6 +136,64 @@ export interface SFTPFileItem {
   group?: string;
 }
 
+export type FileSessionType = 'local' | 'sftp' | 'terminal';
+
+export interface LocalDriveInfo {
+  name: string;
+  path: string;
+  isDrive: boolean;
+}
+
+export interface QuickLocation {
+  name: string;
+  path: string;
+  icon?: string;
+}
+
+export interface FilePaneConfig {
+  id: string;
+  sessionType: FileSessionType;
+  title: string;
+  profileId?: string;
+  profile?: Partial<ServerProfile>;
+  terminalTabId?: string;
+  currentPath: string;
+  history: string[];
+  historyIndex: number;
+  searchFilter: string;
+  showHidden: boolean;
+  selectedPaths: string[];
+  refreshKey?: number;
+}
+
+export interface CrossTransferParams {
+  transferId?: string;
+  sourceType: 'local' | 'sftp';
+  sourcePath: string;
+  sourceTarget?: any;
+  destType: 'local' | 'sftp';
+  destDir: string;
+  destTarget?: any;
+}
+
+export interface CrossTransferTask {
+  id: string;
+  filename: string;
+  sourceType: 'local' | 'sftp';
+  sourcePath: string;
+  sourceTitle: string;
+  destType: 'local' | 'sftp';
+  destDir: string;
+  destTitle: string;
+  progress: number;
+  loaded: number;
+  total: number;
+  currentFile?: string;
+  status: 'active' | 'completed' | 'failed' | 'aborted';
+  startTime: number;
+  error?: string;
+}
+
 export interface Snippet {
   id: string;
   name: string;

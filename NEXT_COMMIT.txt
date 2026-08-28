@@ -1,11 +1,15 @@
-fix(network): dynamically detect local machine LAN IP
+feat(files): add split-window File Mode and cross-session transfers
 
-Resolve an issue where the status bar, launcher badge, and SSH tunnel
-helpers displayed a hardcoded placeholder IP (192.168.1.100) instead of
-the machine's actual local network IP.
+Introduce a dedicated multi-pane File Mode in the left sidebar
+supporting standalone direct SFTP sessions, local filesystem browsing,
+and cross-session transfers with completion guards.
 
-- Add prioritized LAN IP detection in system routes using os.networkInterfaces()
-- Implement GET /api/system/network-info endpoint returning primary IP and adapters
-- Update ApiClient getLanIp() and add getNetworkInfo() helper
-- Update AppContext and StorageService to eliminate hardcoded 192.168.1.100
-- Add Local Machine Network & IP configuration section to Settings modal
+- Add File Mode navigation view to sidebar and main layout
+- Implement FileManagerView with 1, 2, 3, and 4-pane split layouts
+- Add local filesystem REST API (/api/local-files/drives, list, read, write)
+- Support standalone direct SFTP sessions without opening terminal shells
+- Implement cross-session transfers (SFTP <-> SFTP, Local <-> SFTP, Local <-> Local)
+- Add completion guards ensuring finished files and directories persist on abort
+- Implement recursive parent directory pre-creation on file streams
+- Add TransferQueueDrawer for real-time progress tracking and cancellation
+- Auto-refresh destination and source directory panes on completion/cancel

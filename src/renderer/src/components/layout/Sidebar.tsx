@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   Terminal,
+  FolderTree,
   Server,
   Network,
   Key,
@@ -38,6 +39,11 @@ export const Sidebar: React.FC = () => {
       icon: <Terminal className="w-4 h-4" />,
       badge: tabs.length,
       badgeColor: 'bg-cyan-500/20 text-cyan-300',
+    },
+    {
+      id: 'files',
+      label: 'File Manager',
+      icon: <FolderTree className="w-4 h-4" />,
     },
     {
       id: 'profiles',

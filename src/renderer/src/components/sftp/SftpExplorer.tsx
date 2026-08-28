@@ -179,6 +179,7 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
       }
       setTransferState(null);
       showToast('Transfer cancelled', 'info');
+      loadFiles();
     }
   };
 
@@ -250,6 +251,7 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
           : `Downloaded "${data.filename}"${locationInfo}`,
         'success'
       );
+      loadFiles();
     });
 
     const unbindCancelled = electron.onDownloadCancelled((data: any) => {
@@ -259,6 +261,7 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
         return null;
       });
       showToast('Transfer cancelled', 'info');
+      loadFiles();
     });
 
     return () => {

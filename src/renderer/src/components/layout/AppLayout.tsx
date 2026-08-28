@@ -11,6 +11,7 @@ import { ProfileManager } from '../profiles/ProfileManager';
 import { TunnelDashboard } from '../tunnels/TunnelDashboard';
 import { KeyVault } from '../keys/KeyVault';
 import { SnippetLibrary } from '../snippets/SnippetLibrary';
+import { FileManagerView } from '../files/FileManagerView';
 import { HostKeyModal } from '../keys/HostKeyModal';
 import { SettingsModal } from '../settings/SettingsModal';
 import { ShortcutsModal } from '../settings/ShortcutsModal';
@@ -214,6 +215,7 @@ export const AppLayout: React.FC = () => {
             </div>
           </div>
 
+          {activeView === 'files' && <FileManagerView />}
           {activeView === 'profiles' && <ProfileManager />}
           {activeView === 'tunnels' && <TunnelDashboard />}
           {activeView === 'keys' && <KeyVault />}

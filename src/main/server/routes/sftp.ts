@@ -18,8 +18,13 @@ import {
   sftpStreamDirectoryAsZip,
   sftpRemoteExtract,
   sftpRemoteCompress,
+  sftpTransferBetweenSessions,
+  sftpTransferLocalToRemote,
+  sftpDownloadFileDirect,
+  sftpDownloadDirectoryDirect,
 } from '../ssh/sftp-service';
 import path from 'path';
+import fs from 'fs';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } }); // 100MB
@@ -586,6 +591,166 @@ router.post('/transfer/abort', async (req: AuthenticatedRequest, res: Response) 
   } catch {}
   activeTransfers.delete(transferId);
   res.json({ success: true, message: 'Transfer aborted', transferId });
+});
+
+// Cross-session transfer endpoint (Remote-to-Remote, Local-to-Remote, Remote-to-Local, Local-to-Local)
+router.post('/transfer-cross', async (req: AuthenticatedRequest, res: Response) => {
+  const transferId = (req.body.transferId as string) || uuidv4();
+  const abortController = new AbortController();
+  const {
+    sourceType, // 'local' | 'sftp'
+    sourcePath,
+    sourceTarget, // profile or connection params
+    destType, // 'local' | 'sftp'
+    destDir,
+    destTarget, // profile or connection params
+  } = req.body;
+
+  if (!sourcePath || !destDir || !sourceType || !destType) {
+    res.status(400).json({ error: 'sourcePath, destDir, sourceType, and destType are required' });
+    return;
+  }
+
+  const baseName = path.basename(sourcePath.replace(/\\/g, '/'));
+  let srcSession: any = null;
+  let destSession: any = null;
+
+  let cleanedUp = false;
+  const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    activeTransfers.delete(transferId);
+    if (srcSession) {
+      try { srcSession.close(); } catch {}
+      srcSession = null;
+    }
+    if (destSession) {
+      try { destSession.close(); } catch {}
+      destSession = null;
+    }
+  };
+
+  const transferEntry: ActiveTransferEntry = {
+    transferId,
+    type: destType === 'local' ? 'download' : 'upload',
+    isFolder: false,
+    path: sourcePath,
+    filename: baseName,
+    startTime: Date.now(),
+    status: 'active',
+    exploredFiles: 0,
+    exploredDirs: 0,
+    processedFiles: 0,
+    processedBytes: 0,
+    totalBytes: 0,
+    percent: 0,
+    abort: () => {
+      transferEntry.status = 'aborted';
+      abortController.abort();
+    },
+  };
+
+  activeTransfers.set(transferId, transferEntry);
+
+  const onProgress = (prog: any) => {
+    transferEntry.currentFile = prog.currentFile;
+    transferEntry.exploredFiles = prog.exploredFiles;
+    transferEntry.exploredDirs = prog.exploredDirs;
+    transferEntry.processedFiles = prog.processedFiles;
+    transferEntry.processedBytes = prog.processedBytes;
+    transferEntry.totalBytes = prog.totalDiscoveredBytes;
+    transferEntry.percent = prog.percent;
+    if (prog.phase === 'completed') transferEntry.status = 'completed';
+    if (prog.phase === 'aborted') transferEntry.status = 'aborted';
+  };
+
+  try {
+    const userId = req.user!.userId;
+
+    function buildSSHOptions(t: any): SSHConnectionOptions {
+      if (!t) throw new Error('Missing SSH connection target parameters');
+      return {
+        userId,
+        profileId: typeof t === 'string' ? t : (t.id || t.profileId),
+        host: t.host,
+        port: t.port ? Number(t.port) : undefined,
+        username: t.username,
+        password: t.password,
+        keyId: t.keyId || t.key_id,
+        privateKey: t.privateKey,
+        passphrase: t.passphrase,
+        jumpHostId: t.jumpHostId || t.jump_host_id,
+        sftpCommand: t.sftpCommand || t.sftp_command,
+      };
+    }
+
+    if (sourceType === 'sftp' && destType === 'sftp') {
+      // Remote SFTP -> Remote SFTP
+      srcSession = await openSFTPSession(buildSSHOptions(sourceTarget));
+      destSession = await openSFTPSession(buildSSHOptions(destTarget));
+      await sftpTransferBetweenSessions(srcSession.sftp, sourcePath, destSession.sftp, destDir, {
+        signal: abortController.signal,
+        onProgress,
+      });
+    } else if (sourceType === 'local' && destType === 'sftp') {
+      // Local -> Remote SFTP
+      destSession = await openSFTPSession(buildSSHOptions(destTarget));
+      await sftpTransferLocalToRemote(sourcePath, destSession.sftp, destDir, {
+        signal: abortController.signal,
+        onProgress,
+      });
+    } else if (sourceType === 'sftp' && destType === 'local') {
+      // Remote SFTP -> Local
+      srcSession = await openSFTPSession(buildSSHOptions(sourceTarget));
+      const stat = await sftpStat(srcSession.sftp, sourcePath);
+      const destResolvedDir = path.resolve(destDir);
+      if (!fs.existsSync(destResolvedDir)) {
+        fs.mkdirSync(destResolvedDir, { recursive: true });
+      }
+      const fullLocalDest = path.join(destResolvedDir, baseName);
+      if (stat.isDirectory) {
+        if (!fs.existsSync(fullLocalDest)) {
+          fs.mkdirSync(fullLocalDest, { recursive: true });
+        }
+        await sftpDownloadDirectoryDirect(srcSession.sftp, sourcePath, fullLocalDest, {
+          signal: abortController.signal,
+          onProgress,
+        });
+      } else {
+        const fileParent = path.dirname(fullLocalDest);
+        if (!fs.existsSync(fileParent)) {
+          fs.mkdirSync(fileParent, { recursive: true });
+        }
+        await sftpDownloadFileDirect(srcSession.sftp, sourcePath, fullLocalDest, {
+          signal: abortController.signal,
+          onProgress,
+        });
+      }
+    } else if (sourceType === 'local' && destType === 'local') {
+      // Local -> Local
+      const srcResolved = path.resolve(sourcePath);
+      const destResolvedDir = path.resolve(destDir);
+      if (!fs.existsSync(destResolvedDir)) {
+        fs.mkdirSync(destResolvedDir, { recursive: true });
+      }
+      const destResolved = path.join(destResolvedDir, baseName);
+      const parentDir = path.dirname(destResolved);
+      if (!fs.existsSync(parentDir)) {
+        fs.mkdirSync(parentDir, { recursive: true });
+      }
+      fs.cpSync(srcResolved, destResolved, { recursive: true });
+      transferEntry.percent = 100;
+      transferEntry.status = 'completed';
+    }
+
+    transferEntry.status = 'completed';
+    transferEntry.percent = 100;
+    res.json({ success: true, message: `Transferred ${baseName} successfully`, transferId });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    cleanup();
+  }
 });
 
 export default router;

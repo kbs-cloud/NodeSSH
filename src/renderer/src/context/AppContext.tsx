@@ -10,7 +10,7 @@ import {
 import { storage } from '../services/storage';
 import { api } from '../services/api';
 
-export type NavView = 'terminals' | 'profiles' | 'tunnels' | 'keys' | 'snippets' | 'settings';
+export type NavView = 'terminals' | 'files' | 'profiles' | 'tunnels' | 'keys' | 'snippets' | 'settings';
 
 interface AppContextType {
   // Navigation

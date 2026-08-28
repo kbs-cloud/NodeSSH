@@ -1,4 +1,4 @@
-import { ServerProfile, KeyVaultItem, SSHTunnel, Snippet, SFTPFileItem, User } from '../types';
+import { ServerProfile, KeyVaultItem, SSHTunnel, Snippet, SFTPFileItem, User, LocalDriveInfo, QuickLocation, CrossTransferParams } from '../types';
 import { storage } from './storage';
 
 export type ProfileTarget = string | Partial<ServerProfile> | ServerProfile | undefined | null;
@@ -576,8 +576,9 @@ class ApiClient {
   // --- SFTP ---
   async listSftpFiles(path?: string, target?: ProfileTarget): Promise<SFTPFileItem[] & { resolvedPath?: string }> {
     try {
+      const cleanPath = typeof path === 'string' ? path.trim() : '';
       const q = new URLSearchParams();
-      if (path && path.trim()) q.set('path', path.trim());
+      if (cleanPath) q.set('path', cleanPath);
       appendSftpParams(q, target);
       const res = await fetch(`${this.baseUrl}/sftp/list?${q.toString()}`, {
         headers: this.getHeaders(),
@@ -585,7 +586,7 @@ class ApiClient {
       if (res.ok) {
         const data = await res.json();
         const rawItems = Array.isArray(data) ? data : data.items || [];
-        const resolvedPath = data.path || path || '/';
+        const resolvedPath = data.path || cleanPath || '/';
         const items = rawItems.map((item: any) => ({
           name: item.filename || item.name,
           path: `${resolvedPath === '/' ? '' : resolvedPath.replace(/\/$/, '')}/${item.filename || item.name}`,
@@ -599,7 +600,7 @@ class ApiClient {
         return items as SFTPFileItem[] & { resolvedPath?: string };
       }
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || err.message || `Failed to list directory: ${path || '.'}`);
+      throw new Error(err.error || err.message || `Failed to list directory: ${cleanPath || '.'}`);
     } catch (e: any) {
       if (e.message && e.message.includes('fetch')) {
         throw new Error('NodeSSH backend server is unreachable. Ensure the backend is running on port 3001.');
@@ -979,6 +980,216 @@ class ApiClient {
       });
     } catch {
       // Ignore network abort errors
+    }
+  }
+
+  // --- Local Filesystem API ---
+  async getLocalDrives(): Promise<{ drives: LocalDriveInfo[]; quickLocations: QuickLocation[]; homeDir: string; platform: string }> {
+    try {
+      const res = await fetch(`${this.baseUrl}/local-files/drives`, {
+        headers: this.getHeaders(),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {}
+    return { drives: [{ name: 'C:', path: 'C:\\', isDrive: true }], quickLocations: [], homeDir: '', platform: 'win32' };
+  }
+
+  async listLocalFiles(dirPath?: string): Promise<SFTPFileItem[] & { resolvedPath?: string }> {
+    try {
+      const cleanPath = typeof dirPath === 'string' ? dirPath.trim() : '';
+      const q = new URLSearchParams();
+      if (cleanPath) q.set('path', cleanPath);
+      const res = await fetch(`${this.baseUrl}/local-files/list?${q.toString()}`, {
+        headers: this.getHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const rawItems = Array.isArray(data) ? data : data.items || [];
+        const resolvedPath = data.path || cleanPath || '';
+        const items = rawItems.map((item: any) => ({
+          name: item.name,
+          path: item.path,
+          type: item.type,
+          size: item.size || 0,
+          permissions: item.permissions || '0644',
+          modifyTime: item.modifyTime ? (typeof item.modifyTime === 'number' ? item.modifyTime : new Date(item.modifyTime).getTime()) : Date.now(),
+          owner: item.owner || 'local',
+        }));
+        (items as any).resolvedPath = resolvedPath;
+        return items as SFTPFileItem[] & { resolvedPath?: string };
+      }
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || err.message || `Failed to list local directory: ${cleanPath || '.'}`);
+    } catch (e: any) {
+      if (e.message && e.message.includes('fetch')) {
+        throw new Error('NodeSSH backend server is unreachable.');
+      }
+      throw e;
+    }
+  }
+
+  async readLocalFile(filePath: string): Promise<string> {
+    try {
+      const q = new URLSearchParams({ path: filePath });
+      const res = await fetch(`${this.baseUrl}/local-files/read?${q.toString()}`, {
+        headers: this.getHeaders(),
+      });
+      if (res.ok) {
+        const text = await res.text();
+        try {
+          const json = JSON.parse(text);
+          return json.content !== undefined ? json.content : text;
+        } catch {
+          return text;
+        }
+      }
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || err.message || `Failed to read local file: ${filePath}`);
+    } catch (e: any) {
+      if (e.message && e.message.includes('fetch')) {
+        throw new Error('NodeSSH backend server is unreachable.');
+      }
+      throw e;
+    }
+  }
+
+  async writeLocalFile(filePath: string, content: string): Promise<void> {
+    try {
+      const body = { path: filePath, content };
+      const res = await fetch(`${this.baseUrl}/local-files/write`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(body),
+      });
+      if (res.ok) return;
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || err.message || `Failed to write local file: ${filePath}`);
+    } catch (e: any) {
+      if (e.message && e.message.includes('fetch')) {
+        throw new Error('NodeSSH backend server is unreachable.');
+      }
+      throw e;
+    }
+  }
+
+  async createLocalFolder(dirPath: string): Promise<void> {
+    try {
+      const body = { path: dirPath };
+      const res = await fetch(`${this.baseUrl}/local-files/mkdir`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(body),
+      });
+      if (res.ok) return;
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || err.message || `Failed to create local directory: ${dirPath}`);
+    } catch (e: any) {
+      if (e.message && e.message.includes('fetch')) {
+        throw new Error('NodeSSH backend server is unreachable.');
+      }
+      throw e;
+    }
+  }
+
+  async deleteLocalFile(targetPath: string, isDirectory: boolean = false): Promise<void> {
+    try {
+      const body = { path: targetPath, isDirectory };
+      const res = await fetch(`${this.baseUrl}/local-files/delete`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(body),
+      });
+      if (res.ok) return;
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || err.message || `Failed to delete local path: ${targetPath}`);
+    } catch (e: any) {
+      if (e.message && e.message.includes('fetch')) {
+        throw new Error('NodeSSH backend server is unreachable.');
+      }
+      throw e;
+    }
+  }
+
+  async renameLocalFile(oldPath: string, newPath: string): Promise<void> {
+    try {
+      const body = { oldPath, newPath };
+      const res = await fetch(`${this.baseUrl}/local-files/rename`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(body),
+      });
+      if (res.ok) return;
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || err.message || `Failed to rename local path: ${oldPath}`);
+    } catch (e: any) {
+      if (e.message && e.message.includes('fetch')) {
+        throw new Error('NodeSSH backend server is unreachable.');
+      }
+      throw e;
+    }
+  }
+
+  // --- Cross-Session Transfer ---
+  async transferCrossSession(
+    params: CrossTransferParams,
+    onProgress?: (percent: number, loaded: number, total: number, details?: any) => void,
+    signal?: AbortSignal
+  ): Promise<any> {
+    const transferId = params.transferId || 'cross-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    const body = { ...params, transferId };
+
+    let pollInterval: any = null;
+    let latestDetails: any = {};
+
+    if (onProgress) {
+      pollInterval = setInterval(async () => {
+        if (signal?.aborted) return;
+        const status = await this.getTransferStatus(transferId);
+        if (status) {
+          latestDetails = {
+            currentFile: status.currentFile,
+            exploredFiles: status.exploredFiles,
+            exploredDirs: status.exploredDirs,
+            processedFiles: status.processedFiles,
+          };
+          if (onProgress && status.percent !== undefined) {
+            onProgress(status.percent, status.processedBytes || 0, status.totalBytes || 0, latestDetails);
+          }
+        }
+      }, 250);
+    }
+
+    try {
+      const res = await fetch(`${this.baseUrl}/sftp/transfer-cross`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(body),
+        signal,
+      });
+
+      if (!res.ok) {
+        let errText = 'Transfer failed';
+        try {
+          const json = await res.json();
+          if (json.error) errText = json.error;
+        } catch {}
+        throw new Error(errText);
+      }
+
+      if (onProgress) {
+        onProgress(100, 0, 0, latestDetails);
+      }
+      return await res.json();
+    } catch (e: any) {
+      if (e.name === 'AbortError' || signal?.aborted) {
+        this.abortTransfer(transferId).catch(() => {});
+        throw new Error('Transfer aborted');
+      }
+      throw e;
+    } finally {
+      if (pollInterval) clearInterval(pollInterval);
     }
   }
 }

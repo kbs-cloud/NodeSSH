@@ -307,7 +307,13 @@ export async function sftpMkdir(
   if (!recursive) {
     return new Promise((resolve, reject) => {
       sftp.mkdir(normalizedPath, (err) => {
-        if (err) return reject(new Error(`SFTP mkdir failed for '${normalizedPath}': ${err.message}`));
+        if (err) {
+          const msg = err.message || '';
+          if (msg.toLowerCase().includes('already exists') || msg.toLowerCase().includes('eexist')) {
+            return resolve();
+          }
+          return reject(new Error(`SFTP mkdir failed for '${normalizedPath}': ${err.message}`));
+        }
         resolve();
       });
     });
@@ -319,25 +325,19 @@ export async function sftpMkdir(
 
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i];
-    const isLast = i === parts.length - 1;
     currentPath = currentPath === '/' ? `/${part}` : `${currentPath}/${part}`;
 
     await new Promise<void>((resolve, reject) => {
       sftp.stat(currentPath, (err, stats) => {
         if (!err && stats) {
-          if (isLast) {
-            return reject(new Error(`Folder or file '${part}' already exists at destination`));
-          }
-          return resolve(); // Intermediate parent already exists
+          // Folder/item already exists
+          return resolve();
         }
 
         sftp.mkdir(currentPath, (mkErr) => {
           if (mkErr) {
             const msg = mkErr.message || '';
             if (msg.toLowerCase().includes('already exists') || msg.toLowerCase().includes('eexist')) {
-              if (isLast) {
-                return reject(new Error(`Folder '${part}' already exists at destination`));
-              }
               return resolve();
             }
             return reject(new Error(`SFTP mkdir failed for '${currentPath}': ${mkErr.message}`));
@@ -826,6 +826,7 @@ export async function sftpDownloadFileDirect(
 
   return new Promise<void>((resolve, reject) => {
     let isSettled = false;
+    let isCompleted = false;
 
     if (options?.signal?.aborted) {
       isSettled = true;
@@ -862,48 +863,58 @@ export async function sftpDownloadFileDirect(
     };
 
     const handleAbort = () => {
-      if (isSettled) return;
+      if (isSettled || isCompleted) return;
       isSettled = true;
       aborted = true;
       try { readStream.destroy(); } catch {}
       try { writeStream.destroy(); } catch {}
-      try {
-        if (fs.existsSync(localTargetPath)) {
-          fs.unlinkSync(localTargetPath);
-        }
-      } catch {}
+      if (!isCompleted) {
+        try {
+          if (fs.existsSync(localTargetPath)) {
+            fs.unlinkSync(localTargetPath);
+          }
+        } catch {}
+      }
       cleanup();
       reject(new Error('Transfer aborted'));
     };
 
     if (options?.signal) {
+      if (options.signal.aborted) {
+        handleAbort();
+        return;
+      }
       options.signal.addEventListener('abort', handleAbort, { once: true });
     }
 
     readStream.on('error', (err: any) => {
-      if (isSettled) return;
+      if (isSettled || isCompleted) return;
       isSettled = true;
       if (options?.signal) options.signal.removeEventListener('abort', handleAbort);
       try { writeStream.destroy(); } catch {}
-      try {
-        if (fs.existsSync(localTargetPath)) {
-          fs.unlinkSync(localTargetPath);
-        }
-      } catch {}
+      if (!isCompleted) {
+        try {
+          if (fs.existsSync(localTargetPath)) {
+            fs.unlinkSync(localTargetPath);
+          }
+        } catch {}
+      }
       cleanup();
       reject(new Error(`SFTP read failed: ${err.message}`));
     });
 
     writeStream.on('error', (err: any) => {
-      if (isSettled) return;
+      if (isSettled || isCompleted) return;
       isSettled = true;
       if (options?.signal) options.signal.removeEventListener('abort', handleAbort);
       try { readStream.destroy(); } catch {}
-      try {
-        if (fs.existsSync(localTargetPath)) {
-          fs.unlinkSync(localTargetPath);
-        }
-      } catch {}
+      if (!isCompleted) {
+        try {
+          if (fs.existsSync(localTargetPath)) {
+            fs.unlinkSync(localTargetPath);
+          }
+        } catch {}
+      }
       cleanup();
       reject(new Error(`Local file write failed: ${err.message}`));
     });
@@ -911,14 +922,9 @@ export async function sftpDownloadFileDirect(
     writeStream.on('finish', () => {
       if (isSettled) return;
       isSettled = true;
+      isCompleted = true;
       if (options?.signal) options.signal.removeEventListener('abort', handleAbort);
       cleanup();
-      if (aborted) {
-        try {
-          if (fs.existsSync(localTargetPath)) fs.unlinkSync(localTargetPath);
-        } catch {}
-        return reject(new Error('Transfer aborted'));
-      }
       if (options?.onProgress) {
         options.onProgress({
           phase: 'completed',
@@ -941,7 +947,7 @@ export async function sftpDownloadFileDirect(
 /**
  * Downloads an entire remote directory structure recursively directly onto local disk
  * Creates folders and copies each file individually (one file at a time, no zip compression).
- * Automatically cleans up any partially written in-flight file if aborted.
+ * Automatically cleans up only in-flight partial files if aborted.
  */
 export async function sftpDownloadDirectoryDirect(
   sftp: SFTPWrapper,
@@ -993,13 +999,6 @@ export async function sftpDownloadDirectoryDirect(
     aborted = true;
     try { if (activeReadStream) activeReadStream.destroy(); } catch {}
     try { if (activeWriteStream) activeWriteStream.destroy(); } catch {}
-    if (activeInFlightFilePath) {
-      try {
-        if (fs.existsSync(activeInFlightFilePath)) {
-          fs.unlinkSync(activeInFlightFilePath);
-        }
-      } catch {}
-    }
     emitProgress('aborted');
   };
 
@@ -1050,6 +1049,9 @@ export async function sftpDownloadDirectoryDirect(
         emitProgress('transferring');
 
         await new Promise<void>((resolveFile, rejectFile) => {
+          let isSettled = false;
+          let isFileCompleted = false;
+
           if (aborted || options?.signal?.aborted) {
             return rejectFile(new Error('Transfer aborted'));
           }
@@ -1071,31 +1073,39 @@ export async function sftpDownloadDirectoryDirect(
           };
 
           const handleFileAbort = () => {
+            if (isSettled || isFileCompleted) return;
+            isSettled = true;
             try { readStream.destroy(); } catch {}
             try { writeStream.destroy(); } catch {}
-            try {
-              if (fs.existsSync(itemLocalPath)) {
-                fs.unlinkSync(itemLocalPath);
-              }
-            } catch {}
+            if (!isFileCompleted) {
+              try {
+                if (fs.existsSync(itemLocalPath)) {
+                  fs.unlinkSync(itemLocalPath);
+                }
+              } catch {}
+            }
             cleanup();
             rejectFile(new Error('Transfer aborted'));
           };
 
           if (options?.signal) {
+            if (options.signal.aborted) {
+              handleFileAbort();
+              return;
+            }
             options.signal.addEventListener('abort', handleFileAbort, { once: true });
           }
 
-          let isSettled = false;
-
           readStream.on('error', (err: any) => {
-            if (isSettled) return;
+            if (isSettled || isFileCompleted) return;
             isSettled = true;
             if (options?.signal) options.signal.removeEventListener('abort', handleFileAbort);
             try { writeStream.destroy(); } catch {}
-            try {
-              if (fs.existsSync(itemLocalPath)) fs.unlinkSync(itemLocalPath);
-            } catch {}
+            if (!isFileCompleted) {
+              try {
+                if (fs.existsSync(itemLocalPath)) fs.unlinkSync(itemLocalPath);
+              } catch {}
+            }
             cleanup();
             if (aborted || options?.signal?.aborted) {
               return rejectFile(new Error('Transfer aborted'));
@@ -1107,13 +1117,15 @@ export async function sftpDownloadDirectoryDirect(
           });
 
           writeStream.on('error', (err: any) => {
-            if (isSettled) return;
+            if (isSettled || isFileCompleted) return;
             isSettled = true;
             if (options?.signal) options.signal.removeEventListener('abort', handleFileAbort);
             try { readStream.destroy(); } catch {}
-            try {
-              if (fs.existsSync(itemLocalPath)) fs.unlinkSync(itemLocalPath);
-            } catch {}
+            if (!isFileCompleted) {
+              try {
+                if (fs.existsSync(itemLocalPath)) fs.unlinkSync(itemLocalPath);
+              } catch {}
+            }
             cleanup();
             if (aborted || options?.signal?.aborted) {
               return rejectFile(new Error('Transfer aborted'));
@@ -1126,14 +1138,9 @@ export async function sftpDownloadDirectoryDirect(
           writeStream.on('finish', () => {
             if (isSettled) return;
             isSettled = true;
+            isFileCompleted = true;
             if (options?.signal) options.signal.removeEventListener('abort', handleFileAbort);
             cleanup();
-            if (aborted || options?.signal?.aborted) {
-              try {
-                if (fs.existsSync(itemLocalPath)) fs.unlinkSync(itemLocalPath);
-              } catch {}
-              return rejectFile(new Error('Transfer aborted'));
-            }
             processedFiles += 1;
             emitProgress('transferring');
             resolveFile();
@@ -1157,3 +1164,381 @@ export async function sftpDownloadDirectoryDirect(
     }
   }
 }
+
+/**
+ * Streams a single file or entire directory structure directly between two SFTP sessions (Remote-to-Remote)
+ */
+export async function sftpTransferBetweenSessions(
+  srcSftp: SFTPWrapper,
+  srcPath: string,
+  destSftp: SFTPWrapper,
+  destDir: string,
+  options?: SFTPDirectDownloadOptions
+): Promise<void> {
+  const normSrc = srcPath.replace(/\\/g, '/');
+  const baseName = path.posix.basename(normSrc);
+  const targetPath = `${destDir.replace(/\/+$/, '')}/${baseName}`;
+
+  const stat = await sftpStat(srcSftp, normSrc);
+
+  let exploredDirs = 0;
+  let exploredFiles = 0;
+  let totalDiscoveredBytes = 0;
+  let processedFiles = 0;
+  let processedBytes = 0;
+  let currentFile: string | undefined = undefined;
+  let activeReadStream: Readable | null = null;
+  let activeWriteStream: Writable | null = null;
+  let aborted = false;
+
+  const emitProgress = (phase: 'exploring' | 'transferring' | 'completed' | 'aborted') => {
+    if (!options?.onProgress) return;
+    let percent = 0;
+    if (phase === 'completed') {
+      percent = 100;
+    } else if (totalDiscoveredBytes > 0) {
+      percent = Math.min(99, Math.round((processedBytes / totalDiscoveredBytes) * 100));
+    } else if (exploredFiles > 0) {
+      percent = Math.min(99, Math.round((processedFiles / exploredFiles) * 100));
+    }
+    try {
+      options.onProgress({
+        phase,
+        currentFile,
+        exploredFiles,
+        exploredDirs,
+        processedFiles,
+        processedBytes,
+        totalDiscoveredBytes,
+        percent,
+      });
+    } catch {}
+  };
+
+  const onAbort = () => {
+    aborted = true;
+    try { if (activeReadStream) activeReadStream.destroy(); } catch {}
+    try { if (activeWriteStream) (activeWriteStream as any).destroy?.(); } catch {}
+    emitProgress('aborted');
+  };
+
+  if (options?.signal) {
+    if (options.signal.aborted) {
+      onAbort();
+      throw new Error('Transfer aborted');
+    }
+    options.signal.addEventListener('abort', onAbort, { once: true });
+  }
+
+  async function transferSingleFile(remoteSrc: string, remoteDest: string, fileSize: number, relName: string) {
+    exploredFiles += 1;
+    totalDiscoveredBytes += fileSize;
+    currentFile = relName;
+    emitProgress('transferring');
+
+    const parentDir = path.posix.dirname(remoteDest.replace(/\\/g, '/'));
+    if (parentDir && parentDir !== '.' && parentDir !== '/') {
+      await sftpMkdir(destSftp, parentDir, true).catch(() => {});
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      if (aborted || options?.signal?.aborted) return reject(new Error('Transfer aborted'));
+
+      const rStream = srcSftp.createReadStream(remoteSrc);
+      const wStream = destSftp.createWriteStream(remoteDest);
+      activeReadStream = rStream;
+      activeWriteStream = wStream;
+
+      rStream.on('data', (chunk: Buffer) => {
+        processedBytes += chunk.length;
+        emitProgress('transferring');
+      });
+
+      const cleanup = () => {
+        activeReadStream = null;
+        activeWriteStream = null;
+      };
+
+      const handleAbort = () => {
+        try { rStream.destroy(); } catch {}
+        try { (wStream as any).destroy?.(); } catch {}
+        cleanup();
+        reject(new Error('Transfer aborted'));
+      };
+
+      if (options?.signal) {
+        if (options.signal.aborted) {
+          handleAbort();
+          return;
+        }
+        options.signal.addEventListener('abort', handleAbort, { once: true });
+      }
+
+      let isSettled = false;
+
+      rStream.on('error', (err: any) => {
+        if (isSettled) return;
+        isSettled = true;
+        if (options?.signal) options.signal.removeEventListener('abort', handleAbort);
+        try { (wStream as any).destroy?.(); } catch {}
+        cleanup();
+        reject(new Error(`SFTP read error: ${err.message}`));
+      });
+
+      wStream.on('error', (err: any) => {
+        if (isSettled) return;
+        isSettled = true;
+        if (options?.signal) options.signal.removeEventListener('abort', handleAbort);
+        try { rStream.destroy(); } catch {}
+        cleanup();
+        reject(new Error(`SFTP write error: ${err.message}`));
+      });
+
+      wStream.on('finish', () => {
+        if (isSettled) return;
+        isSettled = true;
+        if (options?.signal) options.signal.removeEventListener('abort', handleAbort);
+        cleanup();
+        processedFiles += 1;
+        emitProgress('transferring');
+        resolve();
+      });
+
+      wStream.on('close', () => {
+        if (isSettled) return;
+        isSettled = true;
+        if (options?.signal) options.signal.removeEventListener('abort', handleAbort);
+        cleanup();
+        processedFiles += 1;
+        emitProgress('transferring');
+        resolve();
+      });
+
+      rStream.pipe(wStream);
+    });
+  }
+
+  async function traverseAndTransferDir(currSrc: string, currDest: string, relPrefix: string = '') {
+    exploredDirs += 1;
+    await sftpMkdir(destSftp, currDest, true).catch(() => {});
+    emitProgress('exploring');
+
+    const items = await sftpList(srcSftp, currSrc);
+    for (const item of items) {
+      if (aborted || options?.signal?.aborted) throw new Error('Transfer aborted');
+      if (item.filename === '.' || item.filename === '..') continue;
+
+      const itemSrc = `${currSrc.replace(/\/+$/, '')}/${item.filename}`;
+      const itemDest = `${currDest.replace(/\/+$/, '')}/${item.filename}`;
+      const itemRel = relPrefix ? `${relPrefix}/${item.filename}` : item.filename;
+
+      if (item.isDirectory) {
+        await sftpMkdir(destSftp, itemDest, true).catch(() => {});
+        await traverseAndTransferDir(itemSrc, itemDest, itemRel);
+      } else {
+        await transferSingleFile(itemSrc, itemDest, item.size || 0, itemRel);
+      }
+    }
+  }
+
+  try {
+    if (stat.isDirectory) {
+      await traverseAndTransferDir(normSrc, targetPath, baseName);
+    } else {
+      await transferSingleFile(normSrc, targetPath, stat.size || 0, baseName);
+    }
+    emitProgress('completed');
+  } finally {
+    if (options?.signal) {
+      options.signal.removeEventListener('abort', onAbort);
+    }
+  }
+}
+
+/**
+ * Transfers local files/folders to remote SFTP
+ */
+export async function sftpTransferLocalToRemote(
+  localSrcPath: string,
+  destSftp: SFTPWrapper,
+  destDir: string,
+  options?: SFTPDirectDownloadOptions
+): Promise<void> {
+  const normLocal = path.resolve(localSrcPath);
+  const baseName = path.basename(normLocal);
+  const targetRemote = `${destDir.replace(/\/+$/, '')}/${baseName}`;
+  const stat = fs.statSync(normLocal);
+
+  let exploredDirs = 0;
+  let exploredFiles = 0;
+  let totalDiscoveredBytes = 0;
+  let processedFiles = 0;
+  let processedBytes = 0;
+  let currentFile: string | undefined = undefined;
+  let activeReadStream: Readable | null = null;
+  let activeWriteStream: Writable | null = null;
+  let aborted = false;
+
+  const emitProgress = (phase: 'exploring' | 'transferring' | 'completed' | 'aborted') => {
+    if (!options?.onProgress) return;
+    let percent = 0;
+    if (phase === 'completed') {
+      percent = 100;
+    } else if (totalDiscoveredBytes > 0) {
+      percent = Math.min(99, Math.round((processedBytes / totalDiscoveredBytes) * 100));
+    } else if (exploredFiles > 0) {
+      percent = Math.min(99, Math.round((processedFiles / exploredFiles) * 100));
+    }
+    try {
+      options.onProgress({
+        phase,
+        currentFile,
+        exploredFiles,
+        exploredDirs,
+        processedFiles,
+        processedBytes,
+        totalDiscoveredBytes,
+        percent,
+      });
+    } catch {}
+  };
+
+  const onAbort = () => {
+    aborted = true;
+    try { if (activeReadStream) activeReadStream.destroy(); } catch {}
+    try { if (activeWriteStream) (activeWriteStream as any).destroy?.(); } catch {}
+    emitProgress('aborted');
+  };
+
+  if (options?.signal) {
+    if (options.signal.aborted) {
+      onAbort();
+      throw new Error('Transfer aborted');
+    }
+    options.signal.addEventListener('abort', onAbort, { once: true });
+  }
+
+  async function uploadFile(lPath: string, rPath: string, fileSize: number, relName: string) {
+    exploredFiles += 1;
+    totalDiscoveredBytes += fileSize;
+    currentFile = relName;
+    emitProgress('transferring');
+
+    const parentDir = path.posix.dirname(rPath.replace(/\\/g, '/'));
+    if (parentDir && parentDir !== '.' && parentDir !== '/') {
+      await sftpMkdir(destSftp, parentDir, true).catch(() => {});
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      if (aborted || options?.signal?.aborted) return reject(new Error('Transfer aborted'));
+
+      const rStream = fs.createReadStream(lPath);
+      const wStream = destSftp.createWriteStream(rPath);
+      activeReadStream = rStream;
+      activeWriteStream = wStream;
+
+      rStream.on('data', (chunk: Buffer) => {
+        processedBytes += chunk.length;
+        emitProgress('transferring');
+      });
+
+      const cleanup = () => {
+        activeReadStream = null;
+        activeWriteStream = null;
+      };
+
+      const handleAbort = () => {
+        try { rStream.destroy(); } catch {}
+        try { (wStream as any).destroy?.(); } catch {}
+        cleanup();
+        reject(new Error('Transfer aborted'));
+      };
+
+      if (options?.signal) {
+        if (options.signal.aborted) {
+          handleAbort();
+          return;
+        }
+        options.signal.addEventListener('abort', handleAbort, { once: true });
+      }
+
+      let isSettled = false;
+
+      rStream.on('error', (err: any) => {
+        if (isSettled) return;
+        isSettled = true;
+        if (options?.signal) options.signal.removeEventListener('abort', handleAbort);
+        try { (wStream as any).destroy?.(); } catch {}
+        cleanup();
+        reject(new Error(`Local read error: ${err.message}`));
+      });
+
+      wStream.on('error', (err: any) => {
+        if (isSettled) return;
+        isSettled = true;
+        if (options?.signal) options.signal.removeEventListener('abort', handleAbort);
+        try { rStream.destroy(); } catch {}
+        cleanup();
+        reject(new Error(`SFTP upload write error: ${err.message}`));
+      });
+
+      wStream.on('finish', () => {
+        if (isSettled) return;
+        isSettled = true;
+        if (options?.signal) options.signal.removeEventListener('abort', handleAbort);
+        cleanup();
+        processedFiles += 1;
+        emitProgress('transferring');
+        resolve();
+      });
+
+      wStream.on('close', () => {
+        if (isSettled) return;
+        isSettled = true;
+        if (options?.signal) options.signal.removeEventListener('abort', handleAbort);
+        cleanup();
+        processedFiles += 1;
+        emitProgress('transferring');
+        resolve();
+      });
+
+      rStream.pipe(wStream);
+    });
+  }
+
+  async function traverseDir(currLocal: string, currRemote: string, relPrefix: string = '') {
+    exploredDirs += 1;
+    await sftpMkdir(destSftp, currRemote, true).catch(() => {});
+    emitProgress('exploring');
+
+    const entries = fs.readdirSync(currLocal, { withFileTypes: true });
+    for (const entry of entries) {
+      if (aborted || options?.signal?.aborted) throw new Error('Transfer aborted');
+      const itemLocal = path.join(currLocal, entry.name);
+      const itemRemote = `${currRemote.replace(/\/+$/, '')}/${entry.name}`;
+      const itemRel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
+
+      if (entry.isDirectory()) {
+        await sftpMkdir(destSftp, itemRemote, true).catch(() => {});
+        await traverseDir(itemLocal, itemRemote, itemRel);
+      } else {
+        const itemStat = fs.statSync(itemLocal);
+        await uploadFile(itemLocal, itemRemote, itemStat.size, itemRel);
+      }
+    }
+  }
+
+  try {
+    if (stat.isDirectory()) {
+      await traverseDir(normLocal, targetRemote, baseName);
+    } else {
+      await uploadFile(normLocal, targetRemote, stat.size, baseName);
+    }
+    emitProgress('completed');
+  } finally {
+    if (options?.signal) {
+      options.signal.removeEventListener('abort', onAbort);
+    }
+  }
+}
+

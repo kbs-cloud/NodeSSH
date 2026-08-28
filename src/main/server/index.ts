@@ -17,6 +17,7 @@ import tunnelsRouter from './routes/tunnels';
 import snippetsRouter from './routes/snippets';
 import sftpRouter from './routes/sftp';
 import systemRouter from './routes/system';
+import localFilesRouter from './routes/local-files';
 
 import { setupTerminalWebSocket } from './ws/terminal-ws';
 import { setupSftpWebSocket } from './ws/sftp-ws';
@@ -66,6 +67,7 @@ function createApp(): express.Express {
   app.use('/api/snippets', snippetsRouter);
   app.use('/api/sftp', sftpRouter);
   app.use('/api/system', systemRouter);
+  app.use('/api/local-files', localFilesRouter);
 
   // Health check endpoint
   app.get('/api/health', (_req, res) => {
