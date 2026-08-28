@@ -815,7 +815,10 @@ export async function sftpDownloadFileDirect(
   let aborted = false;
 
   return new Promise<void>((resolve, reject) => {
+    let isSettled = false;
+
     if (options?.signal?.aborted) {
+      isSettled = true;
       return reject(new Error('Transfer aborted'));
     }
 
@@ -827,6 +830,7 @@ export async function sftpDownloadFileDirect(
     let processedBytes = 0;
 
     readStream.on('data', (chunk: Buffer) => {
+      if (isSettled) return;
       processedBytes += chunk.length;
       if (options?.onProgress) {
         options.onProgress({
@@ -848,6 +852,8 @@ export async function sftpDownloadFileDirect(
     };
 
     const handleAbort = () => {
+      if (isSettled) return;
+      isSettled = true;
       aborted = true;
       try { readStream.destroy(); } catch {}
       try { writeStream.destroy(); } catch {}
@@ -865,6 +871,8 @@ export async function sftpDownloadFileDirect(
     }
 
     readStream.on('error', (err: any) => {
+      if (isSettled) return;
+      isSettled = true;
       if (options?.signal) options.signal.removeEventListener('abort', handleAbort);
       try { writeStream.destroy(); } catch {}
       try {
@@ -877,6 +885,8 @@ export async function sftpDownloadFileDirect(
     });
 
     writeStream.on('error', (err: any) => {
+      if (isSettled) return;
+      isSettled = true;
       if (options?.signal) options.signal.removeEventListener('abort', handleAbort);
       try { readStream.destroy(); } catch {}
       try {
@@ -889,6 +899,8 @@ export async function sftpDownloadFileDirect(
     });
 
     writeStream.on('finish', () => {
+      if (isSettled) return;
+      isSettled = true;
       if (options?.signal) options.signal.removeEventListener('abort', handleAbort);
       cleanup();
       if (aborted) {

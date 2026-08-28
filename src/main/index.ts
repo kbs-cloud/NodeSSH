@@ -162,6 +162,7 @@ app.whenReady().then(async () => {
       const filename = item.getFilename();
       const totalBytes = item.getTotalBytes();
       const downloadUrl = item.getURL();
+      console.log('[Electron] will-download triggered for:', { filename, downloadUrl });
       let transferId = `dl-${Date.now()}`;
       try {
         const parsed = new URL(downloadUrl, `http://127.0.0.1:${serverPort}`);

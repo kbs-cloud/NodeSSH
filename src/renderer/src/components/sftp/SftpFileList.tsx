@@ -53,8 +53,14 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
 }) => {
   const { setEditingFile, setEditingPermissionsFile, showToast } = useApp();
   const [activeMenuFile, setActiveMenuFile] = useState<string | null>(null);
-  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+  const [selectedFilePaths, setSelectedFilePaths] = useState<string[]>([]);
+  const [lastSelectedPath, setLastSelectedPath] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setSelectedFilePaths([]);
+    setLastSelectedPath(null);
+  }, [currentPath]);
 
   useEffect(() => {
     if (!activeMenuFile) return;
@@ -78,6 +84,8 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setActiveMenuFile(null);
+        setSelectedFilePaths([]);
+        setLastSelectedPath(null);
       }
     };
 
@@ -189,21 +197,80 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
   };
 
   const handleGoUp = () => {
+    setSelectedFilePaths([]);
+    setLastSelectedPath(null);
     const parts = currentPath.split('/').filter(Boolean);
     parts.pop();
     const upPath = parts.length > 0 ? '/' + parts.join('/') : '/';
     onNavigate(upPath);
   };
 
+  const handleRowClick = (e: React.MouseEvent, file: SFTPFileItem) => {
+    e.stopPropagation();
+    const isMeta = e.ctrlKey || e.metaKey;
+    const isShift = e.shiftKey;
+
+    if (isMeta) {
+      setSelectedFilePaths(prev => {
+        const index = prev.indexOf(file.path);
+        if (index >= 0) {
+          return prev.filter(p => p !== file.path);
+        } else {
+          return [...prev, file.path];
+        }
+      });
+      setLastSelectedPath(file.path);
+    } else if (isShift && lastSelectedPath) {
+      const lastIndex = files.findIndex(f => f.path === lastSelectedPath);
+      const currentIndex = files.findIndex(f => f.path === file.path);
+      if (lastIndex >= 0 && currentIndex >= 0) {
+        const start = Math.min(lastIndex, currentIndex);
+        const end = Math.max(lastIndex, currentIndex);
+        const rangePaths = files.slice(start, end + 1).map(f => f.path);
+        setSelectedFilePaths(prev => {
+          return Array.from(new Set([...prev, ...rangePaths]));
+        });
+      }
+    } else {
+      setSelectedFilePaths([file.path]);
+      setLastSelectedPath(file.path);
+    }
+  };
+
   const handleItemDragStart = (e: React.DragEvent, file: SFTPFileItem) => {
     e.stopPropagation();
-    e.dataTransfer.setData('application/json', JSON.stringify({ file, profileTarget }));
-    e.dataTransfer.setData('text/plain', file.path);
+    
+    let dragFiles: SFTPFileItem[] = [];
+    if (selectedFilePaths.includes(file.path)) {
+      dragFiles = files.filter(f => selectedFilePaths.includes(f.path));
+    } else {
+      setSelectedFilePaths([file.path]);
+      setLastSelectedPath(file.path);
+      dragFiles = [file];
+    }
+
+    e.dataTransfer.setData(
+      'application/json',
+      JSON.stringify({
+        file: dragFiles[0],
+        files: dragFiles,
+        profileTarget,
+      })
+    );
+
+    const pathsString = dragFiles.map(f => `"${f.path}"`).join(' ');
+    e.dataTransfer.setData('text/plain', pathsString);
     e.dataTransfer.effectAllowed = 'copy';
   };
 
   return (
-    <div className="flex-1 overflow-auto text-xs select-none">
+    <div
+      className="flex-1 overflow-auto text-xs select-none"
+      onClick={() => {
+        setSelectedFilePaths([]);
+        setLastSelectedPath(null);
+      }}
+    >
       {/*
         This uses a plain flex/div layout rather than a real <table>/<tr>
         on purpose: Chromium does not reliably fire 'dragstart' on
@@ -241,7 +308,7 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
           )}
 
           {files.map(file => {
-            const isSelected = selectedFilePath === file.path;
+            const isSelected = selectedFilePaths.includes(file.path);
             const isDir = file.type === 'directory';
             const isArchive = !isDir && isArchiveFile(file.name);
 
@@ -251,7 +318,7 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
                 key={file.path}
                 draggable={true}
                 onDragStart={e => handleItemDragStart(e, file)}
-                onClick={() => setSelectedFilePath(file.path)}
+                onClick={e => handleRowClick(e, file)}
                 onDoubleClick={() => {
                   if (isDir) {
                     onNavigate(file.path);

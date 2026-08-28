@@ -395,6 +395,102 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
   };
 
   // Dropdown Drop Download Handler
+  const handleDownloadMultiple = async (items: SFTPFileItem[]) => {
+    if (items.length === 0) return;
+    if (items.length === 1) {
+      await handleDownloadFile(items[0]);
+      return;
+    }
+
+    const electron = (window as any).electronAPI;
+
+    if (electron?.downloadDirect && electron?.selectDownloadDirectory) {
+      const destDir = await electron.selectDownloadDirectory();
+      if (!destDir) return; // User cancelled directory selection
+
+      for (const item of items) {
+        const isDir = item.type === 'directory';
+        const transferId = 'dl-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+        try {
+          await electron.downloadDirect({
+            remotePath: item.path,
+            localDestDir: destDir,
+            isDirectory: isDir,
+            transferId,
+            profileTarget: activeProfile,
+          });
+        } catch (err: any) {
+          if (err.message !== 'Transfer aborted') {
+            showToast(`Download failed for ${item.name}: ${err.message}`, 'error');
+          }
+          if (err.message === 'Transfer aborted') break;
+        }
+      }
+      return;
+    }
+
+    // Web / Browser Blob Fallback
+    for (const item of items) {
+      const isDir = item.type === 'directory';
+      const downloadName = isDir ? `${item.name}.zip` : item.name;
+      const abortController = new AbortController();
+      const transferId = 'dl-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+
+      setTransferState({
+        active: true,
+        name: downloadName,
+        progress: 0,
+        loaded: 0,
+        total: isDir ? 0 : item.size || 0,
+        mode: 'download',
+        isFolder: isDir,
+        transferId,
+        abortController,
+      });
+
+      try {
+        const blob = await api.downloadSftpWithProgress(
+          item.path,
+          activeProfile,
+          isDir,
+          (percent, loaded, total, details) => {
+            setTransferState(prev => (prev ? {
+              ...prev,
+              progress: percent,
+              loaded,
+              total,
+              currentFile: details?.currentFile,
+              exploredFiles: details?.exploredFiles,
+              exploredDirs: details?.exploredDirs,
+              processedFiles: details?.processedFiles,
+            } : null));
+          },
+          abortController.signal
+        );
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = downloadName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showToast(isDir ? `Downloaded directory "${downloadName}" successfully!` : `Downloaded ${item.name}`, 'success');
+      } catch (err: any) {
+        if (abortController.signal.aborted || err.message === 'Download aborted') {
+          showToast('Transfer cancelled', 'info');
+          break;
+        } else {
+          showToast(`Download failed for ${item.name}: ${err.message}`, 'error');
+        }
+      }
+    }
+    setTransferState(null);
+  };
+
+  // Dropdown Drop Download Handler
   const handleDownloadDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDownloadDragOver(false);
@@ -402,9 +498,11 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
     try {
       const dataStr = e.dataTransfer.getData('application/json');
       if (dataStr) {
-        const { file } = JSON.parse(dataStr);
-        if (file) {
-          await handleDownloadFile(file);
+        const parsed = JSON.parse(dataStr);
+        if (parsed.files && parsed.files.length > 0) {
+          await handleDownloadMultiple(parsed.files);
+        } else if (parsed.file) {
+          await handleDownloadFile(parsed.file);
         }
       }
     } catch (err: any) {
