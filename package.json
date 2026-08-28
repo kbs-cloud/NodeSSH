@@ -1,6 +1,6 @@
 {
   "name": "nodessh",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "A modern web-based MobaXterm alternative with SSH, SFTP, Tunneling, and Key Management",
   "main": "dist/main/index.js",
   "scripts": {

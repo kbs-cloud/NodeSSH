@@ -1,0 +1,7 @@
+feat(ui): add resizable dock windows, split panes and left-aligned file actions
+
+- Add interactive draggable resize divider handles to SFTP dock panel (left/right) with localStorage persistence
+- Add draggable resize dividers to vertical and horizontal split terminal panes with double-click reset
+- Reposition SFTP file and folder action buttons to the left column for instant access without horizontal scrolling
+- Support per-tab SFTP directory state and auto-synchronization with active terminal cwd
+- Improve terminal cwd detection from shell prompts and OSC escape sequences

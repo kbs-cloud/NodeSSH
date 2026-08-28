@@ -18,6 +18,73 @@ interface XtermViewProps {
   isFocused?: boolean;
 }
 
+function resolvePathWithUser(rawPath: string, profile?: Partial<ServerProfile>): string {
+  let clean = rawPath.trim();
+  if (clean.startsWith('~')) {
+    const home =
+      profile?.defaultPath ||
+      (profile?.username === 'root'
+        ? '/root'
+        : profile?.username
+        ? `/home/${profile.username}`
+        : '/root');
+    clean = clean.replace(/^~(?=\/|$)/, home);
+  }
+  if (!clean.startsWith('/') && !clean.startsWith('C:') && !clean.startsWith('D:')) {
+    clean = '/' + clean;
+  }
+  clean = clean.replace(/\/+/g, '/');
+  if (clean.length > 1 && clean.endsWith('/')) {
+    clean = clean.slice(0, -1);
+  }
+  return clean;
+}
+
+function extractCwdFromTerminalData(data: string, profile?: Partial<ServerProfile>): string | null {
+  // 1. OSC 7 sequence: \x1b]7;file://[hostname](/path)\x07 or \x1b\
+  const osc7Match = data.match(/\x1b\]7;file:\/\/[^\/]*(\/[^\x07\x1b\\]+)[\x07\x1b\\]/);
+  if (osc7Match && osc7Match[1]) {
+    try {
+      const rawCwd = decodeURIComponent(osc7Match[1]);
+      return resolvePathWithUser(rawCwd, profile);
+    } catch {}
+  }
+
+  // 2. OSC 0 or OSC 2 window title sequence: \x1b]0;Title\x07 or \x1b]2;Title\x07
+  // Formats often: "user@host: ~/dir", "user@host: /path", "host: /path", "/path"
+  const oscTitleMatch = data.match(/\x1b\][02];([^\x07\x1b\\]+)[\x07\x1b\\]/);
+  if (oscTitleMatch && oscTitleMatch[1]) {
+    const title = oscTitleMatch[1].trim();
+    const pathInTitleMatch = title.match(/(?:[a-zA-Z0-9_.-]+@[a-zA-Z0-9_.-]+[:\s]+|[a-zA-Z0-9_.-]+[:\s]+)?([/~][^\x07\x1b\\:\s]*)$/);
+    if (pathInTitleMatch && pathInTitleMatch[1]) {
+      return resolvePathWithUser(pathInTitleMatch[1], profile);
+    }
+  }
+
+  // 3. Shell Prompts (strip ANSI codes first)
+  const stripped = data.replace(/\x1b\[[0-9;?]*[a-zA-Z]|\x1b\([AB0-2]|\x1b\[\?[0-9;]*[a-zA-Z]/g, '');
+
+  // Bash / Zsh prompt: user@host:path[$#%] or [user@host path][$#%]
+  const promptMatch = stripped.match(/(?:[a-zA-Z0-9_.-]+@[a-zA-Z0-9_.-]+[:\s]+|\[[a-zA-Z0-9_.-]+@[a-zA-Z0-9_.-]+\s+)([/~][a-zA-Z0-9_./@~-]*)\]?\s*[$#%>\u279c]\s*$/);
+  if (promptMatch && promptMatch[1]) {
+    return resolvePathWithUser(promptMatch[1], profile);
+  }
+
+  // Bracketed prompt [user@host /path]
+  const bracketMatch = stripped.match(/\[[a-zA-Z0-9_.-]+@[a-zA-Z0-9_.-]+\s+([/~][a-zA-Z0-9_./@~-]*)\]\s*[$#]\s*$/);
+  if (bracketMatch && bracketMatch[1]) {
+    return resolvePathWithUser(bracketMatch[1], profile);
+  }
+
+  // Simple prompt format: ~/directory % or /directory $
+  const simplePromptMatch = stripped.match(/(?:^|[\r\n])\s*([/~][a-zA-Z0-9_./@~-]+)\s*[$#%]\s*$/);
+  if (simplePromptMatch && simplePromptMatch[1]) {
+    return resolvePathWithUser(simplePromptMatch[1], profile);
+  }
+
+  return null;
+}
+
 export const XtermView: React.FC<XtermViewProps> = ({ tab, isFocused = true }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -152,17 +219,15 @@ export const XtermView: React.FC<XtermViewProps> = ({ tab, isFocused = true }) =
       cols: term.cols,
       rows: term.rows,
       onData: (data: string) => {
-        // OSC 7 escape sequence parser for dynamic remote directory detection
-        // Format: \x1b]7;file://[hostname](/path)\x07 or \x1b]7;file://[hostname](/path)\x1b\
-        const osc7Match = data.match(/\x1b\]7;file:\/\/[^\/]*(\/[^\x07\x1b\\]+)[\x07\x1b]/);
-        if (osc7Match && osc7Match[1]) {
-          try {
-            const rawCwd = decodeURIComponent(osc7Match[1]);
-            const cleanCwd = rawCwd.replace(/[\r\n]+$/, '');
-            if (cleanCwd) {
-              updateTab(tab.id, { cwd: cleanCwd });
-            }
-          } catch {}
+        // Dynamic remote directory detection (OSC 7, Window Title OSC 0/2, Shell Prompts)
+        const detectedCwd = extractCwdFromTerminalData(data, tabRef.current.profile);
+        if (detectedCwd && detectedCwd !== tabRef.current.cwd) {
+          const currentTab = tabRef.current;
+          const updates: Partial<TerminalTab> = { cwd: detectedCwd };
+          if (currentTab.sftpAutoSync !== false) {
+            updates.sftpPath = detectedCwd;
+          }
+          updateTab(currentTab.id, updates);
         }
         term.write(data);
       },
@@ -170,7 +235,13 @@ export const XtermView: React.FC<XtermViewProps> = ({ tab, isFocused = true }) =
         updateTab(tab.id, { status });
       },
       onCwdChange: (cwd: string) => {
-        updateTab(tab.id, { cwd });
+        const currentTab = tabRef.current;
+        const resolved = resolvePathWithUser(cwd, currentTab.profile);
+        const updates: Partial<TerminalTab> = { cwd: resolved };
+        if (currentTab.sftpAutoSync !== false) {
+          updates.sftpPath = resolved;
+        }
+        updateTab(currentTab.id, updates);
       },
       onLatencyChange: (latencyMs: number) => {
         updateTab(tab.id, { latencyMs });

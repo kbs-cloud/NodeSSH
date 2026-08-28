@@ -48,9 +48,13 @@ interface TerminalContextType {
   toggleSftpDock: () => void;
   sftpDockPosition: 'left' | 'right';
   setSftpDockPosition: (pos: 'left' | 'right') => void;
+  sftpDockWidth: number;
+  setSftpDockWidth: (width: number) => void;
   sftpCurrentPath: string;
-  setSftpCurrentPath: (path: string) => void;
-  syncSftpWithTerminalCwd: () => void;
+  setSftpCurrentPath: (path: string, tabId?: string) => void;
+  isSftpAutoSync: boolean;
+  toggleSftpAutoSync: (tabId?: string) => void;
+  syncSftpWithTerminalCwd: (tabId?: string) => void;
 }
 
 const TerminalContext = createContext<TerminalContextType | undefined>(undefined);
@@ -72,7 +76,26 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // SFTP state
   const [isSftpDocked, setIsSftpDocked] = useState<boolean>(false);
   const [sftpDockPosition, setSftpDockPosition] = useState<'left' | 'right'>('right');
-  const [sftpCurrentPath, setSftpCurrentPath] = useState<string>('');
+  const [sftpDockWidth, setSftpDockWidthState] = useState<number>(() => {
+    const saved = localStorage.getItem('nodessh_sftp_dock_width');
+    if (saved) {
+      const parsed = parseInt(saved, 10);
+      if (!isNaN(parsed) && parsed >= 240 && parsed <= 1200) {
+        return parsed;
+      }
+    }
+    return 360;
+  });
+
+  const setSftpDockWidth = useCallback((width: number) => {
+    const clamped = Math.max(240, Math.min(1200, Math.round(width)));
+    setSftpDockWidthState(clamped);
+    try {
+      localStorage.setItem('nodessh_sftp_dock_width', String(clamped));
+    } catch {
+      // ignore storage error
+    }
+  }, []);
 
   // Sessions map reference (to avoid re-rendering entire tree on input)
   const sessionsRef = useRef<Map<string, TerminalSession>>(new Map());
@@ -116,13 +139,31 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       const newId = 'tab-' + Date.now();
 
+      const effectiveCwd =
+        effectiveProfile?.defaultPath ||
+        (effectiveProfile?.username === 'root'
+          ? '/root'
+          : effectiveProfile?.username
+          ? `/home/${effectiveProfile.username}`
+          : '~');
+
+      const effectiveSftpPath =
+        effectiveProfile?.defaultPath ||
+        (effectiveProfile?.username === 'root'
+          ? '/root'
+          : effectiveProfile?.username
+          ? `/home/${effectiveProfile.username}`
+          : '');
+
       const newTab: TerminalTab = {
         id: newId,
         title: effectiveTitle,
         profile: effectiveProfile,
         profileId: effectiveProfile?.id,
         status: 'connecting',
-        cwd: effectiveProfile?.defaultPath || (effectiveProfile?.username === 'root' ? '/root' : (effectiveProfile?.username ? `/home/${effectiveProfile.username}` : '~')),
+        cwd: effectiveCwd,
+        sftpPath: effectiveSftpPath,
+        sftpAutoSync: true,
         cols: 80,
         rows: 24,
         createdAt: Date.now(),
@@ -335,22 +376,48 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     [isMultiExecActive, activeTabId, broadcastInput]
   );
 
+  const sftpCurrentPath = activeTab?.sftpPath || activeTab?.cwd || '';
+  const isSftpAutoSync = activeTab ? activeTab.sftpAutoSync !== false : true;
+
+  const setSftpCurrentPath = useCallback((path: string, tabId?: string) => {
+    const targetId = tabId || activeTabId;
+    if (!targetId) return;
+    setTabs(prev => prev.map(t => (t.id === targetId ? { ...t, sftpPath: path } : t)));
+  }, [activeTabId]);
+
   const toggleSftpDock = useCallback(() => {
     setIsSftpDocked(prev => !prev);
   }, []);
 
-  const syncSftpWithTerminalCwd = useCallback(() => {
-    if (activeTab?.cwd) {
-      setSftpCurrentPath(activeTab.cwd);
-    }
-  }, [activeTab?.cwd]);
+  const toggleSftpAutoSync = useCallback((tabId?: string) => {
+    const targetId = tabId || activeTabId;
+    if (!targetId) return;
+    setTabs(prev => prev.map(t => {
+      if (t.id === targetId) {
+        const nextVal = t.sftpAutoSync === false ? true : false;
+        return { ...t, sftpAutoSync: nextVal };
+      }
+      return t;
+    }));
+  }, [activeTabId]);
 
-  // Automatically sync sftpCurrentPath whenever active tab's cwd changes if SFTP explorer is open/docked
-  useEffect(() => {
-    if (isSftpDocked && activeTab?.cwd) {
-      setSftpCurrentPath(activeTab.cwd);
-    }
-  }, [isSftpDocked, activeTab?.cwd]);
+  const syncSftpWithTerminalCwd = useCallback((tabId?: string) => {
+    const targetId = tabId || activeTabId;
+    if (!targetId) return;
+    setTabs(prev => prev.map(t => {
+      if (t.id === targetId && t.cwd) {
+        let clean = t.cwd.trim();
+        if (clean.startsWith('~')) {
+          const home = t.profile?.defaultPath || (t.profile?.username === 'root' ? '/root' : (t.profile?.username ? `/home/${t.profile.username}` : ''));
+          if (home) {
+            clean = clean.replace(/^~(?=\/|$)/, home);
+          }
+        }
+        return { ...t, sftpPath: clean };
+      }
+      return t;
+    }));
+  }, [activeTabId]);
 
   return (
     <TerminalContext.Provider
@@ -390,8 +457,12 @@ export const TerminalProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         toggleSftpDock,
         sftpDockPosition,
         setSftpDockPosition,
+        sftpDockWidth,
+        setSftpDockWidth,
         sftpCurrentPath,
         setSftpCurrentPath,
+        isSftpAutoSync,
+        toggleSftpAutoSync,
         syncSftpWithTerminalCwd,
       }}
     >

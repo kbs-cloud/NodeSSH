@@ -8,7 +8,7 @@
 ## ✨ Key Features
 
 ### 🖥️ 1. Next-Gen Terminal (Powered by `@xterm/xterm` v6+)
-- **Multi-Tab Interface & Split Panes**: Horizontal and vertical split-screen terminal views with drag/reorder tabs.
+- **Multi-Tab Interface & Resizable Split Panes**: Horizontal and vertical split-screen terminal views with interactive draggable splitter bars (and double-click 50/50 reset) and drag/reorder tabs.
 - **Configurable Session Kill on Tab Close**: Choose whether closing a tab immediately terminates the remote SSH process / PTY or keeps it detached in the background.
 - **Multi-Exec / Broadcast Input Mode**: Send keystrokes or commands to all active SSH sessions simultaneously — perfect for multi-node server orchestration and cluster maintenance.
 - **Safe Multi-Line Paste Confirmation**: Intercepts multi-line pastes with newline characters, giving you a preview modal before execution to prevent accidental commands.
@@ -16,7 +16,9 @@
 - **Theme Engine**: Cyberpunk Neon, Dracula, One Dark, Monokai, Nord, and MobaXterm Classic.
 
 ### 📁 2. Dockable Side-by-Side SFTP File Explorer
-- **Synchronized SFTP Panel**: Live file manager alongside the active terminal tab.
+- **Resizable Dock Windows**: Drag-to-resize divider gutter on left or right docked SFTP explorer with automatic preference persistence.
+- **Left-Aligned Quick Action Column**: Action buttons (More Options, Download, Edit) positioned on the left side of every row for instant access without horizontal scrolling.
+- **Synchronized SFTP Panel**: Live file manager alongside the active terminal tab with automatic per-tab directory tracking.
 - **OS-Native Drag-and-Drop (Desktop Mode)**: Drag remote files or entire directories directly from the SFTP tree onto your local Desktop or OS File Explorer. Directories are automatically staged and extracted.
 - **Drag-and-Drop Web Uploads & Fast Downloads**: Upload files directly from your desktop or download remote assets with one click.
 - **In-Browser Code & Config Editor**: Click any remote configuration file (`.conf`, `.sh`, `.json`, `.yaml`, `.py`, `.env`, etc.) to view and edit with syntax highlighting and instant Save back over SFTP.

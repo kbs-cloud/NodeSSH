@@ -35,6 +35,8 @@ export const AppLayout: React.FC = () => {
     isSftpDocked,
     toggleSftpDock,
     sftpDockPosition,
+    sftpDockWidth,
+    setSftpDockWidth,
     addTab,
     closeTab,
     activeTabId,
@@ -42,6 +44,32 @@ export const AppLayout: React.FC = () => {
     setActiveTabId,
     toggleMultiExec,
   } = useTerminal();
+
+  // State to track active dock resizing
+  const [isResizingDock, setIsResizingDock] = React.useState<boolean>(false);
+
+  const startDockResize = (e: React.MouseEvent, side: 'left' | 'right') => {
+    e.preventDefault();
+    setIsResizingDock(true);
+    const startX = e.clientX;
+    const startWidth = sftpDockWidth;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const newWidth = side === 'left' ? startWidth + deltaX : startWidth - deltaX;
+      const maxAllowed = Math.min(1000, window.innerWidth - 280);
+      setSftpDockWidth(Math.max(240, Math.min(maxAllowed, newWidth)));
+    };
+
+    const handleMouseUp = () => {
+      setIsResizingDock(false);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -141,9 +169,23 @@ export const AppLayout: React.FC = () => {
             <div className="flex-1 flex overflow-hidden relative">
               {/* Left Docked SFTP */}
               {isSftpDocked && sftpDockPosition === 'left' && (
-                <div className="w-80 h-full flex-shrink-0 z-10">
-                  <SftpExplorer onClose={toggleSftpDock} />
-                </div>
+                <>
+                  <div
+                    style={{ width: `${sftpDockWidth}px` }}
+                    className="h-full flex-shrink-0 z-10 flex flex-col overflow-hidden"
+                  >
+                    <SftpExplorer onClose={toggleSftpDock} />
+                  </div>
+                  {/* Left Dock Resize Divider Handle */}
+                  <div
+                    onMouseDown={e => startDockResize(e, 'left')}
+                    onDoubleClick={() => setSftpDockWidth(360)}
+                    className="w-1.5 hover:w-2 -ml-0.5 z-20 cursor-col-resize bg-[var(--theme-border,#1e2640)] hover:bg-cyan-500/60 active:bg-cyan-400 transition-all group flex items-center justify-center select-none"
+                    title="Drag to resize SFTP dock (Double-click to reset)"
+                  >
+                    <div className="w-0.5 h-7 bg-slate-600 rounded-full group-hover:bg-cyan-300 group-hover:h-12 transition-all" />
+                  </div>
+                </>
               )}
 
               {/* Main Split Terminal View */}
@@ -151,9 +193,23 @@ export const AppLayout: React.FC = () => {
 
               {/* Right Docked SFTP */}
               {isSftpDocked && sftpDockPosition === 'right' && (
-                <div className="w-80 h-full flex-shrink-0 z-10">
-                  <SftpExplorer onClose={toggleSftpDock} />
-                </div>
+                <>
+                  {/* Right Dock Resize Divider Handle */}
+                  <div
+                    onMouseDown={e => startDockResize(e, 'right')}
+                    onDoubleClick={() => setSftpDockWidth(360)}
+                    className="w-1.5 hover:w-2 -mr-0.5 z-20 cursor-col-resize bg-[var(--theme-border,#1e2640)] hover:bg-cyan-500/60 active:bg-cyan-400 transition-all group flex items-center justify-center select-none"
+                    title="Drag to resize SFTP dock (Double-click to reset)"
+                  >
+                    <div className="w-0.5 h-7 bg-slate-600 rounded-full group-hover:bg-cyan-300 group-hover:h-12 transition-all" />
+                  </div>
+                  <div
+                    style={{ width: `${sftpDockWidth}px` }}
+                    className="h-full flex-shrink-0 z-10 flex flex-col overflow-hidden"
+                  >
+                    <SftpExplorer onClose={toggleSftpDock} />
+                  </div>
+                </>
               )}
             </div>
           </div>
@@ -182,6 +238,10 @@ export const AppLayout: React.FC = () => {
       />
       <SettingsModal />
       <ShortcutsModal />
+      {/* Fullscreen overlay during active dock resizing */}
+      {isResizingDock && (
+        <div className="fixed inset-0 z-50 cursor-col-resize select-none" style={{ pointerEvents: 'auto' }} />
+      )}
       <Toast toast={toast} />
     </div>
   );

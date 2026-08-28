@@ -20,6 +20,9 @@ import {
   Terminal,
   ChevronRight,
   Package,
+  Check,
+  X,
+  RefreshCw,
 } from 'lucide-react';
 import { SFTPFileItem } from '../../types';
 import { useApp } from '../../context/AppContext';
@@ -32,6 +35,8 @@ interface SftpFileListProps {
   profileTarget?: ProfileTarget;
   onNavigate: (path: string) => void;
   onRefresh: () => void;
+  isCreatingFolder?: boolean;
+  onCancelCreateFolder?: () => void;
   onDownload?: (file: SFTPFileItem) => void;
   onExtractRemote?: (file: SFTPFileItem) => void;
   onCompressRemote?: (file: SFTPFileItem) => void;
@@ -45,6 +50,8 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
   profileTarget,
   onNavigate,
   onRefresh,
+  isCreatingFolder,
+  onCancelCreateFolder,
   onDownload,
   onExtractRemote,
   onCompressRemote,
@@ -55,12 +62,82 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
   const [activeMenuFile, setActiveMenuFile] = useState<string | null>(null);
   const [selectedFilePaths, setSelectedFilePaths] = useState<string[]>([]);
   const [lastSelectedPath, setLastSelectedPath] = useState<string | null>(null);
+  const [newFolderName, setNewFolderName] = useState('New Folder');
+  const [isCreatingRemoteFolder, setIsCreatingRemoteFolder] = useState(false);
+  const [folderCreationError, setFolderCreationError] = useState<string | null>(null);
+  const newFolderInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setSelectedFilePaths([]);
     setLastSelectedPath(null);
+    if (isCreatingFolder && onCancelCreateFolder) {
+      onCancelCreateFolder();
+    }
   }, [currentPath]);
+
+  useEffect(() => {
+    if (isCreatingFolder) {
+      setNewFolderName('New Folder');
+      setFolderCreationError(null);
+      const timer = setTimeout(() => {
+        if (newFolderInputRef.current) {
+          newFolderInputRef.current.focus();
+          newFolderInputRef.current.select();
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [isCreatingFolder]);
+
+  const validateFolderName = (name: string): string | null => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      return 'Folder name cannot be empty';
+    }
+    if (trimmed === '.' || trimmed === '..') {
+      return 'Folder name cannot be "." or ".."';
+    }
+    const invalidCharRegex = /[\\/:*?"<>|\x00-\x1F]/;
+    if (invalidCharRegex.test(trimmed)) {
+      return 'Folder name contains invalid characters: \\ / : * ? " < > |';
+    }
+    const exists = files.some(
+      f => f.name.toLowerCase() === trimmed.toLowerCase()
+    );
+    if (exists) {
+      return `A file or folder named "${trimmed}" already exists`;
+    }
+    return null;
+  };
+
+  const handleCommitCreateFolder = async () => {
+    const trimmed = newFolderName.trim();
+    const validationError = validateFolderName(trimmed);
+    if (validationError) {
+      setFolderCreationError(validationError);
+      showToast(validationError, 'error');
+      newFolderInputRef.current?.focus();
+      return;
+    }
+
+    try {
+      setIsCreatingRemoteFolder(true);
+      setFolderCreationError(null);
+      const fullPath = `${currentPath === '/' ? '' : currentPath}/${trimmed}`;
+      await api.createSftpFolder(fullPath, profileTarget);
+      showToast(`Created folder "${trimmed}"`, 'success');
+      if (onCancelCreateFolder) onCancelCreateFolder();
+      onRefresh();
+    } catch (err: any) {
+      const errMsg = err.message || 'Failed to create folder on remote server';
+      setFolderCreationError(errMsg);
+      showToast(errMsg, 'error');
+      newFolderInputRef.current?.focus();
+    } finally {
+      setIsCreatingRemoteFolder(false);
+    }
+  };
 
   useEffect(() => {
     if (!activeMenuFile) return;
@@ -285,11 +362,11 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
           role="row"
           className="flex sticky top-0 bg-[#0e1222] border-b border-[var(--theme-border,#1e2640)] text-[11px] font-semibold text-slate-400 z-10"
         >
-          <div role="columnheader" className="flex-1 py-2 pl-3 pr-2">Name</div>
+          <div role="columnheader" className="py-2 pl-2 pr-1 w-16 flex-shrink-0 text-slate-400">Actions</div>
+          <div role="columnheader" className="flex-1 py-2 pl-1 pr-2">Name</div>
           <div role="columnheader" className="hidden sm:block py-2 px-2 w-20 flex-shrink-0">Size</div>
           <div role="columnheader" className="hidden md:block py-2 px-2 w-24 flex-shrink-0">Perms</div>
           <div role="columnheader" className="hidden lg:block py-2 px-2 w-32 flex-shrink-0">Modified</div>
-          <div role="columnheader" className="py-2 pr-3 pl-2 text-right w-24 flex-shrink-0">Actions</div>
         </div>
 
         <div role="rowgroup" className="divide-y divide-white/5">
@@ -300,9 +377,76 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
               onClick={handleGoUp}
               className="flex items-center hover:bg-cyan-500/10 transition-colors cursor-pointer text-slate-400 hover:text-cyan-300"
             >
-              <div role="cell" className="py-1.5 pl-3 pr-2 flex items-center gap-2 font-mono text-[11px] font-semibold">
+              <div className="w-16 flex-shrink-0" />
+              <div role="cell" className="py-1.5 pl-1 pr-2 flex-1 flex items-center gap-2 font-mono text-[11px] font-semibold">
                 <CornerLeftUp className="w-4 h-4 text-cyan-400" />
                 <span>.. (Up to parent directory)</span>
+              </div>
+            </div>
+          )}
+
+          {/* Inline New Folder Creation Row */}
+          {isCreatingFolder && (
+            <div
+              role="row"
+              onClick={e => e.stopPropagation()}
+              className="flex items-center bg-cyan-950/60 border-l-2 border-amber-400 py-1.5 pl-2 pr-2 gap-2"
+            >
+              <div className="w-12 flex-shrink-0 flex items-center justify-center">
+                <Folder className="w-4 h-4 text-amber-400 fill-amber-400/20 flex-shrink-0 animate-pulse" />
+              </div>
+              <div className="flex-1 flex items-center gap-1.5 min-w-0">
+                <input
+                  ref={newFolderInputRef}
+                  type="text"
+                  value={newFolderName}
+                  onChange={e => {
+                    setNewFolderName(e.target.value);
+                    if (folderCreationError) setFolderCreationError(null);
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleCommitCreateFolder();
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      onCancelCreateFolder?.();
+                    }
+                  }}
+                  disabled={isCreatingRemoteFolder}
+                  placeholder="New folder name..."
+                  className={`flex-1 min-w-[120px] max-w-[220px] bg-[#090b14] border ${
+                    folderCreationError
+                      ? 'border-rose-500 ring-1 ring-rose-500/50'
+                      : 'border-amber-500/60 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/40'
+                  } rounded px-2 py-0.5 text-xs text-white font-mono outline-none`}
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={handleCommitCreateFolder}
+                  disabled={isCreatingRemoteFolder}
+                  className="p-1 rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 hover:text-emerald-300 disabled:opacity-50 flex-shrink-0"
+                  title="Create Folder (Enter)"
+                >
+                  {isCreatingRemoteFolder ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Check className="w-3.5 h-3.5" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onCancelCreateFolder?.()}
+                  disabled={isCreatingRemoteFolder}
+                  className="p-1 rounded bg-rose-500/20 text-rose-400 hover:bg-rose-500/30 hover:text-rose-300 disabled:opacity-50 flex-shrink-0"
+                  title="Cancel (Esc)"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+                <span className="text-[10px] text-slate-400 font-mono hidden sm:inline ml-1">
+                  [Enter] create · [Esc] cancel
+                </span>
               </div>
             </div>
           )}
@@ -336,111 +480,49 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
                     : `Drag file "${file.name}" to Desktop / Explorer or bottom bar`
                 }
               >
-                {/* Name & Icon */}
-                {/*
-                  min-w-[140px] (not min-w-0): this column competes for space
-                  with several fixed-width sibling columns below, and the
-                  docked SFTP panel can be much narrower than all of them
-                  combined (e.g. 320px vs 400px of fixed columns) - min-w-0
-                  let this shrink all the way to 0px there, making the name
-                  invisible. 140px leaves ~75px of actual text after the
-                  grip/file icons, gaps, and padding - enough for a readable
-                  truncated name. When the panel is too narrow for every
-                  column at once, the row now overflows and scrolls (see the
-                  overflow-x-auto on the scroll container below) instead of
-                  silently hiding content.
-                */}
-                <div role="cell" className="flex-1 min-w-[140px] py-1.5 pl-3 pr-2 select-none">
-                  <div className="flex items-center gap-2 select-none">
-                    <GripVertical className="w-3 h-3 text-slate-500 opacity-60 group-hover:opacity-100 flex-shrink-0" />
-                    {getFileIcon(file)}
-                    <span
-                      className={`font-mono truncate max-w-[200px] ${
-                        isDir
-                          ? 'text-cyan-300 font-medium hover:text-cyan-200'
-                          : 'text-slate-200 group-hover:text-white'
-                      }`}
-                      title={file.name}
-                    >
-                      {file.name}
-                    </span>
-                  </div>
-                </div>
+                {/* Actions (Left-aligned for immediate access even with long names) */}
+                <div role="cell" className="py-1.5 pl-2 pr-1 w-16 flex-shrink-0 relative flex items-center gap-0.5">
+                  <button
+                    data-menu-trigger="true"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setActiveMenuFile(activeMenuFile === file.path ? null : file.path);
+                    }}
+                    className="p-1 rounded text-slate-400 hover:text-white hover:bg-white/10"
+                    title="More Options"
+                  >
+                    <MoreVertical className="w-3.5 h-3.5" />
+                  </button>
 
-                {/* Size */}
-                <div role="cell" className="hidden sm:block py-1.5 px-2 w-20 flex-shrink-0 text-slate-400 font-mono text-[11px]">
-                  {isDir ? '-' : formatSize(file.size)}
-                </div>
-
-                {/* Perms */}
-                <div role="cell" className="hidden md:block py-1.5 px-2 w-24 flex-shrink-0 font-mono text-[11px] text-slate-500">
                   <button
                     onClick={e => {
                       e.stopPropagation();
-                      setEditingPermissionsFile(file);
+                      handleDownload(file);
                     }}
-                    className="hover:text-cyan-400 hover:underline"
-                    title="Click to edit chmod permissions"
+                    className="p-1 rounded text-slate-400 hover:text-emerald-400 hover:bg-white/10"
+                    title={isDir ? 'Download folder' : 'Download file'}
                   >
-                    {file.permissions}
+                    <Download className="w-3.5 h-3.5 text-emerald-400" />
                   </button>
-                </div>
 
-                {/* Date */}
-                <div role="cell" className="hidden lg:block py-1.5 px-2 w-32 flex-shrink-0 text-slate-500 text-[11px]">
-                  {new Date(file.modifyTime).toLocaleDateString(undefined, {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </div>
-
-                {/* Actions */}
-                <div role="cell" className="py-1.5 pr-3 pl-2 w-24 flex-shrink-0 text-right relative">
-                  <div className="flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100">
-                    {!isDir && (
-                      <button
-                        onClick={e => {
-                          e.stopPropagation();
-                          setEditingFile(file);
-                        }}
-                        className="p-1 rounded text-slate-400 hover:text-cyan-400 hover:bg-white/10"
-                        title="Edit in Code Editor"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-
+                  {!isDir && (
                     <button
                       onClick={e => {
                         e.stopPropagation();
-                        handleDownload(file);
+                        setEditingFile(file);
                       }}
-                      className="p-1 rounded text-slate-400 hover:text-emerald-400 hover:bg-white/10"
-                      title={isDir ? 'Download folder' : 'Download file'}
+                      className="p-1 rounded text-slate-400 hover:text-cyan-400 hover:bg-white/10 hidden xl:inline-flex"
+                      title="Edit in Code Editor"
                     >
-                      <Download className="w-3.5 h-3.5 text-emerald-400" />
+                      <Edit3 className="w-3.5 h-3.5" />
                     </button>
+                  )}
 
-                    <button
-                      data-menu-trigger="true"
-                      onClick={e => {
-                        e.stopPropagation();
-                        setActiveMenuFile(activeMenuFile === file.path ? null : file.path);
-                      }}
-                      className="p-1 rounded text-slate-400 hover:text-white hover:bg-white/10"
-                      title="More Options"
-                    >
-                      <MoreVertical className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  {/* Dropdown Menu */}
+                  {/* Dropdown Menu (Anchored to the left) */}
                   {activeMenuFile === file.path && (
                     <div
                       ref={menuRef}
-                      className="absolute right-3 top-8 z-30 w-52 bg-[#151b30] border border-[var(--theme-border,#1e2640)] rounded-lg shadow-2xl py-1 text-xs text-left"
+                      className="absolute left-2 top-8 z-30 w-52 bg-[#151b30] border border-[var(--theme-border,#1e2640)] rounded-lg shadow-2xl py-1 text-xs text-left"
                     >
                       {isDir ? (
                         <>
@@ -601,6 +683,53 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
                       </button>
                     </div>
                   )}
+                </div>
+
+                {/* Name & Icon */}
+                <div role="cell" className="flex-1 min-w-[140px] py-1.5 pl-1 pr-2 select-none">
+                  <div className="flex items-center gap-2 select-none">
+                    <GripVertical className="w-3 h-3 text-slate-500 opacity-60 group-hover:opacity-100 flex-shrink-0" />
+                    {getFileIcon(file)}
+                    <span
+                      className={`font-mono truncate ${
+                        isDir
+                          ? 'text-cyan-300 font-medium hover:text-cyan-200'
+                          : 'text-slate-200 group-hover:text-white'
+                      }`}
+                      title={file.name}
+                    >
+                      {file.name}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Size */}
+                <div role="cell" className="hidden sm:block py-1.5 px-2 w-20 flex-shrink-0 text-slate-400 font-mono text-[11px]">
+                  {isDir ? '-' : formatSize(file.size)}
+                </div>
+
+                {/* Perms */}
+                <div role="cell" className="hidden md:block py-1.5 px-2 w-24 flex-shrink-0 font-mono text-[11px] text-slate-500">
+                  <button
+                    onClick={e => {
+                      e.stopPropagation();
+                      setEditingPermissionsFile(file);
+                    }}
+                    className="hover:text-cyan-400 hover:underline"
+                    title="Click to edit chmod permissions"
+                  >
+                    {file.permissions}
+                  </button>
+                </div>
+
+                {/* Date */}
+                <div role="cell" className="hidden lg:block py-1.5 px-2 w-32 flex-shrink-0 text-slate-500 text-[11px]">
+                  {new Date(file.modifyTime).toLocaleDateString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
                 </div>
               </div>
             );

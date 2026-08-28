@@ -8,6 +8,7 @@ import {
   Eye,
   EyeOff,
   Link,
+  Compass,
   Search,
   X,
   Home,
@@ -46,6 +47,8 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
   const {
     sftpCurrentPath,
     setSftpCurrentPath,
+    isSftpAutoSync,
+    toggleSftpAutoSync,
     syncSftpWithTerminalCwd,
     sendInputToActiveTab,
     activeTab,
@@ -80,6 +83,7 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
   // Editable path bar state
   const [pathInput, setPathInput] = useState<string>(sftpCurrentPath);
   const [isEditingPath, setIsEditingPath] = useState<boolean>(false);
+  const [isCreatingFolder, setIsCreatingFolder] = useState<boolean>(false);
   const pathInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -88,26 +92,24 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
     setPathInput(sftpCurrentPath);
   }, [sftpCurrentPath]);
 
-  // Set initial directory based on profile configuration or server default
+  // Set initial directory based on profile configuration or server default if tab has no path
   useEffect(() => {
-    if (activeProfile?.defaultPath) {
-      setSftpCurrentPath(activeProfile.defaultPath);
+    if (sftpCurrentPath) {
+      setPathInput(sftpCurrentPath);
+    } else if (activeProfile?.defaultPath) {
+      setSftpCurrentPath(activeProfile.defaultPath, activeTab?.id);
       setPathInput(activeProfile.defaultPath);
-    } else {
-      // Allow server to dynamically resolve canonical home directory
-      setSftpCurrentPath('');
-      setPathInput('');
     }
-  }, [activeProfile?.id, activeProfile?.defaultPath, activeProfile?.host]);
+  }, [activeTab?.id, activeProfile?.id, activeProfile?.defaultPath]);
 
   const loadFiles = useCallback(async (targetPath?: string) => {
-    const pathToQuery = targetPath !== undefined ? targetPath : (sftpCurrentPath || '');
+    const pathToQuery = targetPath !== undefined ? targetPath : (sftpCurrentPath || activeTab?.sftpPath || '');
     setIsLoading(true);
     try {
       const list = await api.listSftpFiles(pathToQuery, activeProfile);
       setFiles(list);
       if (list.resolvedPath && list.resolvedPath !== sftpCurrentPath) {
-        setSftpCurrentPath(list.resolvedPath);
+        setSftpCurrentPath(list.resolvedPath, activeTab?.id);
         setPathInput(list.resolvedPath);
       }
     } catch (err: any) {
@@ -116,11 +118,11 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [sftpCurrentPath, activeProfile, setSftpCurrentPath, showToast]);
+  }, [sftpCurrentPath, activeTab?.id, activeTab?.sftpPath, activeProfile, setSftpCurrentPath, showToast]);
 
   useEffect(() => {
     loadFiles();
-  }, [activeProfile?.id, activeProfile?.host, sftpCurrentPath]);
+  }, [activeProfile?.id, activeProfile?.host, sftpCurrentPath, activeTab?.id]);
 
   const handleNavigate = (newPath: string) => {
     let clean = newPath.trim();
@@ -129,7 +131,7 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
     if (clean.length > 1 && clean.endsWith('/')) {
       clean = clean.slice(0, -1);
     }
-    setSftpCurrentPath(clean);
+    setSftpCurrentPath(clean, activeTab?.id);
     setPathInput(clean);
     setIsEditingPath(false);
   };
@@ -533,14 +535,8 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
     }
   };
 
-  const handleCreateFolder = async () => {
-    const folderName = window.prompt('Enter new folder name:');
-    if (folderName?.trim()) {
-      const fullPath = `${sftpCurrentPath === '/' ? '' : sftpCurrentPath}/${folderName.trim()}`;
-      await api.createSftpFolder(fullPath, activeProfile);
-      showToast(`Created folder "${folderName}"`, 'success');
-      loadFiles();
-    }
+  const handleCreateFolder = () => {
+    setIsCreatingFolder(true);
   };
 
   // Remote Archive Extraction
@@ -624,16 +620,24 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
         className="hidden"
       />
 
-      {/* SFTP Top Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--theme-border,#1e2640)] bg-[var(--theme-bg-dark,#070913)]/70">
-        <div className="flex items-center gap-2 min-w-0">
+      {/* SFTP Top Header: Title, Profile Selector, and Close Dock */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--theme-border,#1e2640)] bg-[var(--theme-bg-dark,#070913)]/80 gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
           <FolderTree className="w-4 h-4 text-[var(--theme-primary,#00f0ff)] flex-shrink-0" />
           <span className="font-semibold text-xs tracking-wide text-white flex-shrink-0">SFTP</span>
+          {activeTab && (
+            <span
+              className="text-[10px] text-slate-400 font-mono truncate max-w-[80px] hidden xl:inline flex-shrink-0"
+              title={`Attached to tab: ${activeTab.title}`}
+            >
+              [{activeTab.title}]
+            </span>
+          )}
           {profiles.length > 0 ? (
             <select
               value={activeProfile?.id || ''}
               onChange={e => setSelectedProfileId(e.target.value || null)}
-              className="text-[11px] bg-cyan-950/80 text-cyan-300 border border-cyan-500/30 px-1.5 py-0.5 rounded font-mono truncate max-w-[130px] outline-none cursor-pointer hover:border-cyan-400"
+              className="text-[11px] bg-cyan-950/80 text-cyan-300 border border-cyan-500/30 px-1.5 py-0.5 rounded font-mono truncate flex-1 min-w-0 max-w-[150px] outline-none cursor-pointer hover:border-cyan-400"
               title="Target Server Profile for SFTP"
             >
               {activeTab?.profile && !profiles.some(p => p.id === activeTab.profile?.id) && (
@@ -648,44 +652,91 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
               ))}
             </select>
           ) : activeProfile ? (
-            <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-500/30 px-1.5 py-0.5 rounded font-mono truncate max-w-[120px]">
+            <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-500/30 px-1.5 py-0.5 rounded font-mono truncate max-w-[140px]">
               {activeProfile.name || `${activeProfile.username}@${activeProfile.host}`}
             </span>
           ) : null}
         </div>
 
-        <div className="flex items-center gap-1">
-          {/* Upload Button */}
+        {onClose && (
           <button
-            onClick={() => fileInputRef.current?.click()}
-            className="p-1 rounded text-slate-400 hover:text-cyan-400 hover:bg-white/10"
-            title="Upload File"
+            onClick={onClose}
+            className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-white/10 flex-shrink-0"
+            title="Close SFTP Dock"
           >
-            <Upload className="w-3.5 h-3.5" />
+            <X className="w-3.5 h-3.5" />
           </button>
+        )}
+      </div>
 
+      {/* SFTP Action Toolbar: Clean, Non-overlapping Action Buttons */}
+      <div className="flex items-center justify-between px-2.5 py-1 bg-[#0b0e1b] border-b border-[var(--theme-border,#1e2640)]/60 text-xs">
+        {/* Left Action Group: Create & Upload */}
+        <div className="flex items-center gap-1 min-w-0">
           {/* New Folder */}
           <button
             onClick={handleCreateFolder}
-            className="p-1 rounded text-slate-400 hover:text-white hover:bg-white/10"
-            title="New Remote Folder"
+            className="px-1.5 py-0.5 rounded text-slate-300 hover:text-amber-400 hover:bg-amber-400/10 flex items-center gap-1 transition-colors flex-shrink-0"
+            title="New Remote Folder (Create temporary folder)"
           >
-            <FolderPlus className="w-3.5 h-3.5" />
+            <FolderPlus className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+            <span className="text-[11px] font-medium hidden xs:inline sm:inline">New Folder</span>
           </button>
 
-          {/* Sync with terminal cwd */}
+          {/* Upload Button */}
           <button
-            onClick={syncSftpWithTerminalCwd}
-            className="p-1 rounded text-slate-400 hover:text-cyan-400 hover:bg-white/10"
-            title="Sync with Terminal CWD"
+            onClick={() => fileInputRef.current?.click()}
+            className="px-1.5 py-0.5 rounded text-slate-300 hover:text-cyan-400 hover:bg-cyan-400/10 flex items-center gap-1 transition-colors flex-shrink-0"
+            title="Upload File"
+          >
+            <Upload className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
+            <span className="text-[11px] font-medium hidden xs:inline sm:inline">Upload</span>
+          </button>
+        </div>
+
+        {/* Right Action Group: Sync, View & Refresh */}
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          {/* Auto-Sync Toggle */}
+          <button
+            onClick={() => {
+              toggleSftpAutoSync();
+              if (!isSftpAutoSync) {
+                syncSftpWithTerminalCwd();
+                showToast('Auto-sync enabled: SFTP will track Terminal CWD', 'info');
+              } else {
+                showToast('Auto-sync disabled', 'info');
+              }
+            }}
+            className={`p-1 rounded transition-colors flex-shrink-0 ${
+              isSftpAutoSync
+                ? 'text-cyan-400 bg-cyan-500/20 border border-cyan-500/40 shadow-xs'
+                : 'text-slate-400 hover:text-white hover:bg-white/10'
+            }`}
+            title={
+              isSftpAutoSync
+                ? 'Auto-sync with Terminal CWD: ON (Click to disable)'
+                : 'Auto-sync with Terminal CWD: OFF (Click to enable)'
+            }
           >
             <Link className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Manual Sync with terminal cwd */}
+          <button
+            onClick={() => {
+              syncSftpWithTerminalCwd();
+              showToast(`Synced SFTP to terminal directory: ${activeTab?.cwd || '~'}`, 'info');
+            }}
+            className="p-1 rounded text-slate-400 hover:text-cyan-400 hover:bg-white/10 flex-shrink-0"
+            title={`Sync SFTP to Terminal CWD (${activeTab?.cwd || '~'})`}
+          >
+            <Compass className="w-3.5 h-3.5" />
           </button>
 
           {/* Toggle Hidden */}
           <button
             onClick={() => setShowHidden(!showHidden)}
-            className={`p-1 rounded transition-colors ${
+            className={`p-1 rounded transition-colors flex-shrink-0 ${
               showHidden ? 'text-cyan-400 bg-cyan-500/10' : 'text-slate-400 hover:text-white hover:bg-white/10'
             }`}
             title={showHidden ? 'Hide dotfiles' : 'Show dotfiles'}
@@ -695,24 +746,14 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
 
           {/* Refresh */}
           <button
-            onClick={loadFiles}
-            className={`p-1 rounded text-slate-400 hover:text-white hover:bg-white/10 ${
+            onClick={() => loadFiles()}
+            className={`p-1 rounded text-slate-400 hover:text-white hover:bg-white/10 flex-shrink-0 ${
               isLoading ? 'animate-spin text-cyan-400' : ''
             }`}
             title="Refresh Directory"
           >
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
-
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-white/10 ml-1"
-              title="Close SFTP Dock"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
         </div>
       </div>
 
@@ -850,6 +891,8 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
         profileTarget={activeProfile}
         onNavigate={handleNavigate}
         onRefresh={loadFiles}
+        isCreatingFolder={isCreatingFolder}
+        onCancelCreateFolder={() => setIsCreatingFolder(false)}
         onDownload={handleDownloadFile}
         onExtractRemote={handleExtractRemote}
         onCompressRemote={handleCompressRemote}

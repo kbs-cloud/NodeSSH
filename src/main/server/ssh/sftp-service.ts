@@ -317,25 +317,35 @@ export async function sftpMkdir(
   const parts = normalizedPath.split('/').filter(Boolean);
   let currentPath = normalizedPath.startsWith('/') ? '/' : '';
 
-  for (const part of parts) {
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    const isLast = i === parts.length - 1;
     currentPath = currentPath === '/' ? `/${part}` : `${currentPath}/${part}`;
-    try {
-      await new Promise<void>((resolve, reject) => {
-        sftp.stat(currentPath, (err, stats) => {
-          if (!err && stats) {
-            return resolve(); // Already exists
+
+    await new Promise<void>((resolve, reject) => {
+      sftp.stat(currentPath, (err, stats) => {
+        if (!err && stats) {
+          if (isLast) {
+            return reject(new Error(`Folder or file '${part}' already exists at destination`));
           }
-          sftp.mkdir(currentPath, (mkErr) => {
-            if (mkErr && mkErr.message && !mkErr.message.includes('already exists')) {
-              // Ignore failure if already exists
+          return resolve(); // Intermediate parent already exists
+        }
+
+        sftp.mkdir(currentPath, (mkErr) => {
+          if (mkErr) {
+            const msg = mkErr.message || '';
+            if (msg.toLowerCase().includes('already exists') || msg.toLowerCase().includes('eexist')) {
+              if (isLast) {
+                return reject(new Error(`Folder '${part}' already exists at destination`));
+              }
+              return resolve();
             }
-            resolve();
-          });
+            return reject(new Error(`SFTP mkdir failed for '${currentPath}': ${mkErr.message}`));
+          }
+          resolve();
         });
       });
-    } catch {
-      // Continue next part
-    }
+    });
   }
 }
 

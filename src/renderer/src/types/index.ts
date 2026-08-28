@@ -65,6 +65,8 @@ export interface TerminalTab {
   status: 'connecting' | 'connected' | 'disconnected' | 'error';
   isPinned?: boolean;
   cwd: string;
+  sftpPath?: string;
+  sftpAutoSync?: boolean;
   cols: number;
   rows: number;
   createdAt: number;
