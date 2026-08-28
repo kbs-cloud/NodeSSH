@@ -1,7 +1,7 @@
 {
   "name": "nodessh",
-  "version": "1.0.0",
-  "description": "A modern web-based MobaXterm alternative with SSH, SFTP, Tunneling, Key Management, and Multi-user SSO",
+  "version": "1.1.0",
+  "description": "A modern web-based MobaXterm alternative with SSH, SFTP, Tunneling, and Key Management",
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "concurrently -k \"npm run dev:renderer\" \"npm run dev:main\" \"wait-on http://localhost:5173 && wait-on dist/main/index.js && electron .\"",
@@ -10,7 +10,13 @@
     "build": "npm run build:renderer && npm run build:main",
     "build:renderer": "vite build",
     "build:main": "tsc -p tsconfig.main.json",
+    "dist": "npm run build && electron-builder",
+    "dist:dir": "npm run build && electron-builder --dir",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:linux": "npm run build && electron-builder --linux",
     "start": "npm run build && electron .",
+    "postinstall": "node scripts/patch-node-pty.js",
     "rebuild": "electron-rebuild",
     "test": "tsx src/main/server/test/backend.test.ts",
     "test:e2e": "playwright test"
@@ -67,6 +73,7 @@
     "@types/ws": "^8.5.14",
     "concurrently": "^9.1.2",
     "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3",
     "wait-on": "^9.1.0"

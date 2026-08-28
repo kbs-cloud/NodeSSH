@@ -2,10 +2,12 @@ import { Router, Response } from 'express';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import { requireAuth, AuthenticatedRequest } from '../auth/middleware';
-import { getProfilesByUserId } from '../db/profiles';
+import { getProfileById, getProfilesByUserId } from '../db/profiles';
+import { SSHConnectionOptions } from '../ssh/connection';
 import {
   openSFTPSession,
   sftpList,
+  sftpRealPath,
   sftpStat,
   sftpReadFile,
   sftpWriteFile,
@@ -23,27 +25,112 @@ const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } }); // 100MB
 
 // Active transfer tracking
-export const activeTransfers = new Map<string, { abort: () => void; startTime: number }>();
+export interface ActiveTransferEntry {
+  transferId: string;
+  type: 'download' | 'upload';
+  isFolder: boolean;
+  path: string;
+  filename: string;
+  startTime: number;
+  status: 'active' | 'completed' | 'aborted' | 'error';
+  currentFile?: string;
+  exploredFiles?: number;
+  exploredDirs?: number;
+  processedFiles?: number;
+  processedBytes?: number;
+  totalBytes?: number;
+  percent?: number;
+  abort: () => void;
+}
+
+export const activeTransfers = new Map<string, ActiveTransferEntry>();
 
 router.use(requireAuth);
 
-function resolveProfileId(userId: string, requestedId?: string): string {
-  if (requestedId && requestedId.trim()) return requestedId.trim();
-  const profiles = getProfilesByUserId(userId);
-  if (profiles.length > 0) return profiles[0].id;
-  throw new Error('No SSH profile available for SFTP session. Please configure a Server Profile first.');
+function extractSSHOptions(req: AuthenticatedRequest): SSHConnectionOptions {
+  const userId = req.user!.userId;
+  const src = req.method === 'GET' ? req.query : req.body;
+
+  const profileId = (src.profileId as string)?.trim() || undefined;
+  const host = (src.host as string)?.trim() || undefined;
+  const port = src.port ? Number(src.port) : undefined;
+  const username = (src.username as string)?.trim() || undefined;
+  const password = (src.password as string) || undefined;
+  const keyId = (src.keyId as string)?.trim() || undefined;
+  const privateKey = (src.privateKey as string) || undefined;
+  const passphrase = (src.passphrase as string) || undefined;
+  const jumpHostId = (src.jumpHostId as string)?.trim() || undefined;
+  const sftpCommand = (src.sftpCommand as string)?.trim() || undefined;
+
+  let resolvedProfileId = profileId;
+  if (profileId) {
+    const existing = getProfileById(userId, profileId);
+    if (existing) {
+      resolvedProfileId = existing.id;
+    }
+  }
+
+  // Fallback to first available profile in DB if neither profileId nor host was provided
+  if (!resolvedProfileId && !host) {
+    const userProfiles = getProfilesByUserId(userId);
+    if (userProfiles.length > 0) {
+      resolvedProfileId = userProfiles[0].id;
+    }
+  }
+
+  if (!resolvedProfileId && !host) {
+    throw new Error('No SSH profile or connection target specified for SFTP session. Please configure a Server Profile or connect to an SSH host first.');
+  }
+
+  return {
+    userId,
+    profileId: resolvedProfileId,
+    host,
+    port,
+    username,
+    password,
+    keyId,
+    privateKey,
+    passphrase,
+    jumpHostId,
+    sftpCommand,
+  };
 }
 
 // List directory contents
 router.get('/list', async (req: AuthenticatedRequest, res: Response) => {
   let session;
   try {
-    const userId = req.user!.userId;
-    const profileId = resolveProfileId(userId, req.query.profileId as string);
-    const remotePath = (req.query.path as string) || '/';
+    const sshOptions = extractSSHOptions(req);
+    let requestedPath = (req.query.path as string)?.trim();
 
-    session = await openSFTPSession({ userId, profileId });
-    const list = await sftpList(session.sftp, remotePath);
+    session = await openSFTPSession(sshOptions);
+
+    let remotePath = requestedPath;
+    if (!remotePath || remotePath === '.' || remotePath === '~') {
+      remotePath = await sftpRealPath(session.sftp, '.');
+    }
+
+    let list;
+    try {
+      list = await sftpList(session.sftp, remotePath);
+    } catch (err: any) {
+      // If requested directory does not exist, resolve actual remote home directory
+      const fallbackPath = await sftpRealPath(session.sftp, '.');
+      if (fallbackPath && fallbackPath !== remotePath) {
+        try {
+          list = await sftpList(session.sftp, fallbackPath);
+          remotePath = fallbackPath;
+        } catch {
+          list = await sftpList(session.sftp, '/');
+          remotePath = '/';
+        }
+      } else {
+        list = await sftpList(session.sftp, '/');
+        remotePath = '/';
+      }
+    }
+
     res.json({
       path: remotePath,
       items: list,
@@ -59,8 +146,7 @@ router.get('/list', async (req: AuthenticatedRequest, res: Response) => {
 router.get('/stat', async (req: AuthenticatedRequest, res: Response) => {
   let session;
   try {
-    const userId = req.user!.userId;
-    const profileId = resolveProfileId(userId, req.query.profileId as string);
+    const sshOptions = extractSSHOptions(req);
     const remotePath = req.query.path as string;
 
     if (!remotePath) {
@@ -68,7 +154,7 @@ router.get('/stat', async (req: AuthenticatedRequest, res: Response) => {
       return;
     }
 
-    session = await openSFTPSession({ userId, profileId });
+    session = await openSFTPSession(sshOptions);
     const stat = await sftpStat(session.sftp, remotePath);
     res.json(stat);
   } catch (err: any) {
@@ -82,8 +168,7 @@ router.get('/stat', async (req: AuthenticatedRequest, res: Response) => {
 router.get('/read', async (req: AuthenticatedRequest, res: Response) => {
   let session;
   try {
-    const userId = req.user!.userId;
-    const profileId = resolveProfileId(userId, req.query.profileId as string);
+    const sshOptions = extractSSHOptions(req);
     const remotePath = req.query.path as string;
 
     if (!remotePath) {
@@ -91,7 +176,7 @@ router.get('/read', async (req: AuthenticatedRequest, res: Response) => {
       return;
     }
 
-    session = await openSFTPSession({ userId, profileId });
+    session = await openSFTPSession(sshOptions);
     const content = await sftpReadFile(session.sftp, remotePath);
     res.json({
       path: remotePath,
@@ -108,8 +193,7 @@ router.get('/read', async (req: AuthenticatedRequest, res: Response) => {
 router.post('/write', async (req: AuthenticatedRequest, res: Response) => {
   let session;
   try {
-    const userId = req.user!.userId;
-    const profileId = resolveProfileId(userId, req.body.profileId);
+    const sshOptions = extractSSHOptions(req);
     const { path: remotePath, content } = req.body;
 
     if (!remotePath || content === undefined) {
@@ -117,7 +201,7 @@ router.post('/write', async (req: AuthenticatedRequest, res: Response) => {
       return;
     }
 
-    session = await openSFTPSession({ userId, profileId });
+    session = await openSFTPSession(sshOptions);
     await sftpWriteFile(session.sftp, remotePath, content);
     res.json({ message: 'File saved successfully', path: remotePath });
   } catch (err: any) {
@@ -131,8 +215,7 @@ router.post('/write', async (req: AuthenticatedRequest, res: Response) => {
 router.post('/mkdir', async (req: AuthenticatedRequest, res: Response) => {
   let session;
   try {
-    const userId = req.user!.userId;
-    const profileId = resolveProfileId(userId, req.body.profileId);
+    const sshOptions = extractSSHOptions(req);
     const { path: remotePath, recursive } = req.body;
 
     if (!remotePath) {
@@ -140,7 +223,7 @@ router.post('/mkdir', async (req: AuthenticatedRequest, res: Response) => {
       return;
     }
 
-    session = await openSFTPSession({ userId, profileId });
+    session = await openSFTPSession(sshOptions);
     await sftpMkdir(session.sftp, remotePath, recursive !== false);
     res.json({ message: 'Directory created successfully', path: remotePath });
   } catch (err: any) {
@@ -154,8 +237,7 @@ router.post('/mkdir', async (req: AuthenticatedRequest, res: Response) => {
 router.post('/delete', async (req: AuthenticatedRequest, res: Response) => {
   let session;
   try {
-    const userId = req.user!.userId;
-    const profileId = resolveProfileId(userId, req.body.profileId);
+    const sshOptions = extractSSHOptions(req);
     const { path: remotePath, isDirectory } = req.body;
 
     if (!remotePath) {
@@ -163,7 +245,7 @@ router.post('/delete', async (req: AuthenticatedRequest, res: Response) => {
       return;
     }
 
-    session = await openSFTPSession({ userId, profileId });
+    session = await openSFTPSession(sshOptions);
     await sftpDelete(session.sftp, remotePath, Boolean(isDirectory));
     res.json({ message: 'Deleted successfully', path: remotePath });
   } catch (err: any) {
@@ -177,8 +259,7 @@ router.post('/delete', async (req: AuthenticatedRequest, res: Response) => {
 router.post('/rename', async (req: AuthenticatedRequest, res: Response) => {
   let session;
   try {
-    const userId = req.user!.userId;
-    const profileId = resolveProfileId(userId, req.body.profileId);
+    const sshOptions = extractSSHOptions(req);
     const { oldPath, newPath } = req.body;
 
     if (!oldPath || !newPath) {
@@ -186,7 +267,7 @@ router.post('/rename', async (req: AuthenticatedRequest, res: Response) => {
       return;
     }
 
-    session = await openSFTPSession({ userId, profileId });
+    session = await openSFTPSession(sshOptions);
     await sftpRename(session.sftp, oldPath, newPath);
     res.json({ message: 'Renamed successfully', oldPath, newPath });
   } catch (err: any) {
@@ -200,8 +281,7 @@ router.post('/rename', async (req: AuthenticatedRequest, res: Response) => {
 router.post('/chmod', async (req: AuthenticatedRequest, res: Response) => {
   let session;
   try {
-    const userId = req.user!.userId;
-    const profileId = resolveProfileId(userId, req.body.profileId);
+    const sshOptions = extractSSHOptions(req);
     const { path: remotePath, mode } = req.body;
 
     if (!remotePath || mode === undefined) {
@@ -209,7 +289,7 @@ router.post('/chmod', async (req: AuthenticatedRequest, res: Response) => {
       return;
     }
 
-    session = await openSFTPSession({ userId, profileId });
+    session = await openSFTPSession(sshOptions);
     await sftpChmod(session.sftp, remotePath, mode);
     res.json({ message: 'Permissions updated successfully', path: remotePath, mode });
   } catch (err: any) {
@@ -223,8 +303,7 @@ router.post('/chmod', async (req: AuthenticatedRequest, res: Response) => {
 router.post('/upload', upload.single('file'), async (req: AuthenticatedRequest, res: Response) => {
   let session;
   try {
-    const userId = req.user!.userId;
-    const profileId = resolveProfileId(userId, req.body.profileId);
+    const sshOptions = extractSSHOptions(req);
     const remoteDir = req.body.remoteDir || '/';
     const file = req.file;
 
@@ -236,7 +315,7 @@ router.post('/upload', upload.single('file'), async (req: AuthenticatedRequest, 
     const filename = req.body.filename || file.originalname;
     const remotePath = `${remoteDir.replace(/\/+$/, '')}/${filename}`;
 
-    session = await openSFTPSession({ userId, profileId });
+    session = await openSFTPSession(sshOptions);
     await sftpWriteFile(session.sftp, remotePath, file.buffer);
 
     res.json({
@@ -269,13 +348,32 @@ router.get('/download', async (req: AuthenticatedRequest, res: Response) => {
     }
   };
 
-  activeTransfers.set(transferId, {
+  const remotePath = (req.query.path as string) || '';
+  const cleanPath = remotePath.replace(/\\/g, '/');
+  const basename = path.posix.basename(cleanPath) || 'download';
+
+  const transferEntry: ActiveTransferEntry = {
+    transferId,
+    type: 'download',
+    isFolder: false,
+    path: remotePath,
+    filename: basename,
+    startTime: Date.now(),
+    status: 'active',
+    exploredFiles: 0,
+    exploredDirs: 0,
+    processedFiles: 0,
+    processedBytes: 0,
+    totalBytes: 0,
+    percent: 0,
     abort: () => {
+      transferEntry.status = 'aborted';
       abortController.abort();
       cleanup();
     },
-    startTime: Date.now(),
-  });
+  };
+
+  activeTransfers.set(transferId, transferEntry);
 
   req.on('close', () => {
     if (!res.writableEnded) {
@@ -285,9 +383,7 @@ router.get('/download', async (req: AuthenticatedRequest, res: Response) => {
   });
 
   try {
-    const userId = req.user!.userId;
-    const profileId = resolveProfileId(userId, req.query.profileId as string);
-    const remotePath = req.query.path as string;
+    const sshOptions = extractSSHOptions(req);
 
     if (!remotePath) {
       cleanup();
@@ -295,24 +391,42 @@ router.get('/download', async (req: AuthenticatedRequest, res: Response) => {
       return;
     }
 
-    session = await openSFTPSession({ userId, profileId });
+    session = await openSFTPSession(sshOptions);
     const stat = await sftpStat(session.sftp, remotePath);
-    const cleanPath = remotePath.replace(/\\/g, '/');
-    const basename = path.posix.basename(cleanPath) || 'download';
 
     if (stat.isDirectory) {
       // Directory download -> Stream as ZIP archive
       const zipFilename = `${basename}.zip`;
+      transferEntry.isFolder = true;
+      transferEntry.filename = zipFilename;
       res.setHeader('Content-Disposition', `attachment; filename="${zipFilename}"; filename*=UTF-8''${encodeURIComponent(zipFilename)}`);
       res.setHeader('Content-Type', 'application/zip');
       res.setHeader('X-Transfer-Id', transferId);
 
       await sftpStreamDirectoryAsZip(session.sftp, remotePath, res, {
         signal: abortController.signal,
+        onProgress: (prog) => {
+          transferEntry.currentFile = prog.currentFile;
+          transferEntry.exploredFiles = prog.exploredFiles;
+          transferEntry.exploredDirs = prog.exploredDirs;
+          transferEntry.processedFiles = prog.processedFiles;
+          transferEntry.processedBytes = prog.processedBytes;
+          transferEntry.totalBytes = prog.totalDiscoveredBytes;
+          transferEntry.percent = prog.percent;
+          if (prog.phase === 'completed') transferEntry.status = 'completed';
+          if (prog.phase === 'aborted') transferEntry.status = 'aborted';
+        },
       });
+      transferEntry.status = 'completed';
+      transferEntry.percent = 100;
       cleanup();
     } else {
       // Single file download -> Stream raw bytes
+      transferEntry.isFolder = false;
+      transferEntry.totalBytes = stat.size || 0;
+      transferEntry.exploredFiles = 1;
+      transferEntry.currentFile = basename;
+
       res.setHeader('Content-Disposition', `attachment; filename="${basename}"; filename*=UTF-8''${encodeURIComponent(basename)}`);
       res.setHeader('Content-Type', 'application/octet-stream');
       res.setHeader('Content-Length', stat.size.toString());
@@ -325,8 +439,16 @@ router.get('/download', async (req: AuthenticatedRequest, res: Response) => {
       };
       abortController.signal.addEventListener('abort', onAbort, { once: true });
 
+      stream.on('data', (chunk: Buffer) => {
+        transferEntry.processedBytes = (transferEntry.processedBytes || 0) + chunk.length;
+        if (transferEntry.totalBytes && transferEntry.totalBytes > 0) {
+          transferEntry.percent = Math.min(99, Math.round((transferEntry.processedBytes / transferEntry.totalBytes) * 100));
+        }
+      });
+
       stream.on('error', (err: any) => {
         abortController.signal.removeEventListener('abort', onAbort);
+        transferEntry.status = 'error';
         cleanup();
         if (!res.headersSent) {
           res.status(500).json({ error: `Download error: ${err.message}` });
@@ -340,6 +462,8 @@ router.get('/download', async (req: AuthenticatedRequest, res: Response) => {
 
       stream.on('end', () => {
         abortController.signal.removeEventListener('abort', onAbort);
+        transferEntry.status = 'completed';
+        transferEntry.percent = 100;
         cleanup();
       });
 
@@ -353,12 +477,43 @@ router.get('/download', async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
+// Get active transfer status
+router.get(['/transfer/status', '/transfer/status/:transferId'], async (req: AuthenticatedRequest, res: Response) => {
+  const transferId = (req.params.transferId || req.query.transferId) as string;
+  if (!transferId) {
+    res.status(400).json({ error: 'transferId is required' });
+    return;
+  }
+
+  const transfer = activeTransfers.get(transferId);
+  if (!transfer) {
+    res.status(404).json({ error: `Transfer '${transferId}' not found or already completed` });
+    return;
+  }
+
+  res.json({
+    transferId: transfer.transferId,
+    type: transfer.type,
+    isFolder: transfer.isFolder,
+    path: transfer.path,
+    filename: transfer.filename,
+    startTime: transfer.startTime,
+    status: transfer.status,
+    currentFile: transfer.currentFile,
+    exploredFiles: transfer.exploredFiles || 0,
+    exploredDirs: transfer.exploredDirs || 0,
+    processedFiles: transfer.processedFiles || 0,
+    processedBytes: transfer.processedBytes || 0,
+    totalBytes: transfer.totalBytes || 0,
+    percent: transfer.percent || 0,
+  });
+});
+
 // Remote extraction of archives
 router.post('/extract', async (req: AuthenticatedRequest, res: Response) => {
   let session;
   try {
-    const userId = req.user!.userId;
-    const profileId = resolveProfileId(userId, req.body.profileId);
+    const sshOptions = extractSSHOptions(req);
     const archivePath = req.body.path || req.body.archivePath;
     const destinationDir = req.body.destinationDir || req.body.targetDir;
 
@@ -367,7 +522,7 @@ router.post('/extract', async (req: AuthenticatedRequest, res: Response) => {
       return;
     }
 
-    session = await openSFTPSession({ userId, profileId });
+    session = await openSFTPSession(sshOptions);
     const result = await sftpRemoteExtract(session.sshConn, archivePath, destinationDir);
     res.json({
       message: `Successfully extracted ${path.posix.basename(archivePath)}`,
@@ -387,8 +542,7 @@ router.post('/extract', async (req: AuthenticatedRequest, res: Response) => {
 router.post('/compress', async (req: AuthenticatedRequest, res: Response) => {
   let session;
   try {
-    const userId = req.user!.userId;
-    const profileId = resolveProfileId(userId, req.body.profileId);
+    const sshOptions = extractSSHOptions(req);
     const sourcePaths = req.body.paths || req.body.sourcePaths;
     const targetArchive = req.body.targetArchive;
 
@@ -397,7 +551,7 @@ router.post('/compress', async (req: AuthenticatedRequest, res: Response) => {
       return;
     }
 
-    session = await openSFTPSession({ userId, profileId });
+    session = await openSFTPSession(sshOptions);
     const result = await sftpRemoteCompress(session.sshConn, sourcePaths, targetArchive);
     res.json({
       message: `Successfully compressed to ${path.posix.basename(targetArchive)}`,

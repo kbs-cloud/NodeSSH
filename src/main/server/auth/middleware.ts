@@ -3,7 +3,6 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config';
 import { AuthTokenPayload } from '../types';
 import { IncomingMessage } from 'http';
-import url from 'url';
 
 export interface AuthenticatedRequest extends Request {
   user?: AuthTokenPayload;

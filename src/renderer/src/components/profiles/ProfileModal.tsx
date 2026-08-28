@@ -19,12 +19,12 @@ export const ProfileModal: React.FC = () => {
   const [folder, setFolder] = useState('Default');
   const [host, setHost] = useState('');
   const [port, setPort] = useState(22);
-  const [username, setUsername] = useState('ubuntu');
+  const [username, setUsername] = useState('root');
   const [authType, setAuthType] = useState<'password' | 'key' | 'agent' | 'none'>('password');
   const [password, setPassword] = useState('');
   const [keyId, setKeyId] = useState('');
   const [jumpHostId, setJumpHostId] = useState('');
-  const [defaultPath, setDefaultPath] = useState('/home/ubuntu');
+  const [defaultPath, setDefaultPath] = useState('');
   const [startupCommand, setStartupCommand] = useState('');
   const [closeSessionOnExit, setCloseSessionOnExit] = useState(true);
   const [keepaliveInterval, setKeepaliveInterval] = useState(30);
@@ -42,7 +42,7 @@ export const ProfileModal: React.FC = () => {
       setPassword(editingProfile.password || '');
       setKeyId(editingProfile.keyId || '');
       setJumpHostId(editingProfile.jumpHostId || '');
-      setDefaultPath(editingProfile.defaultPath || '/home/ubuntu');
+      setDefaultPath(editingProfile.defaultPath || '');
       setStartupCommand(editingProfile.startupCommand || '');
       setCloseSessionOnExit(editingProfile.closeSessionOnExit ?? true);
       setKeepaliveInterval(editingProfile.keepaliveInterval || 30);
@@ -253,7 +253,7 @@ export const ProfileModal: React.FC = () => {
                 type="text"
                 value={defaultPath}
                 onChange={e => setDefaultPath(e.target.value)}
-                placeholder="/home/ubuntu or /var/www"
+                placeholder="Leave empty for user home directory, or /var/www"
                 className="w-full bg-[#070913] border border-white/10 rounded-lg px-3 py-2 text-white outline-none font-mono"
               />
             </div>

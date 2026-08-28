@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { registerLocalUser, loginLocalUser } from '../auth/local';
 import { requireAuth, AuthenticatedRequest } from '../auth/middleware';
-import { getSSOConfig, handleSSOCallback } from '../auth/sso';
 import { findUserById, toUserDTO } from '../db/users';
 import { getSettingsByUserId, upsertSettings } from '../db/settings';
 
@@ -34,12 +33,22 @@ router.get('/me', requireAuth, (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user!.userId;
     const user = findUserById(userId);
+    const preferences = getSettingsByUserId(userId);
+
     if (!user) {
-      res.status(404).json({ error: 'User not found' });
+      res.json({
+        user: {
+          id: userId,
+          username: req.user?.username || 'admin',
+          email: req.user?.email || 'admin@nodessh.local',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        preferences,
+      });
       return;
     }
 
-    const preferences = getSettingsByUserId(userId);
     res.json({
       user: toUserDTO(user),
       preferences,
@@ -60,16 +69,5 @@ router.put('/preferences', requireAuth, (req: AuthenticatedRequest, res: Respons
     res.status(500).json({ error: err.message });
   }
 });
-
-// KBS SSO Config
-router.get('/sso/config', (_req: Request, res: Response) => {
-  res.json(getSSOConfig());
-});
-
-// SSO Callback endpoints
-router.get('/callback', handleSSOCallback);
-router.post('/callback', handleSSOCallback);
-router.get('/sso/callback', handleSSOCallback);
-router.post('/sso/callback', handleSSOCallback);
 
 export default router;

@@ -1,7 +1,7 @@
 # NodeSSH 🚀
 
 > **The Modern, High-Performance Web & Desktop Alternative to MobaXterm**  
-> Run as a standalone cross-platform **Electron Desktop App** or deploy as a **Web Service / Docker container** for zero-latency LAN port forwarding and SSH sessions. Features multi-user isolation, AES-256 encrypted key vaults, side-by-side SFTP file explorer with OS-native drag-and-drop, interactive terminal split panes, and KBS Cloud SSO.
+> Run as a standalone cross-platform **Electron Desktop App** or deploy as a **Web Service / Docker container** for zero-latency LAN port forwarding and SSH sessions. Features user session isolation, AES-256 encrypted key vaults, a side-by-side SFTP file explorer with direct downloads, and interactive terminal split panes.
 
 ---
 
@@ -47,11 +47,10 @@ Solves the common challenge of tunneling connections across local networks and g
 - **Key Importer**: Import OpenSSH, PEM, and PuTTY `.ppk` private keys with automatic format detection.
 - **1-Click Public Key Push (`ssh-copy-id`)**: Automatically authenticate with a password to push and install your public key into `~/.ssh/authorized_keys` with proper UNIX permissions.
 
-### 👥 6. Multi-User Authentication & Persistent Storage
+### 👥 6. User Authentication & Persistent Storage
 - **Automatic Multi-Tier Data Persistence**: Profiles, encrypted keys, tunnels, snippets, and settings persist automatically to SQLite in `%APPDATA%\NodeSSH\data\nodessh.db` with local cache fallback and automatic two-way synchronization.
 - **Local Authentication**: Independent user accounts with `bcrypt` password hashing and JWT sessions.
-- **KBS Cloud SSO Integration**: Native OAuth / SSO support via `https://github.com/kbs-cloud/shared` with automatic offline/local fallback.
-- **Multi-Tenant Isolation**: Server profiles, encrypted keys, tunnels, snippets, and preferences are strictly isolated per user.
+- **User Isolation**: Server profiles, encrypted keys, tunnels, snippets, and preferences are strictly isolated per user.
 
 ### ⚡ 7. Server Profiles & Snippet Library
 - **Server Profile Manager**: Group servers into folders, assign color tags, configure jump hosts, custom keepalives, startup commands, and terminal settings.
@@ -81,9 +80,9 @@ NodeSSH/
 ├── src/
 │   ├── main/                    # Electron Main process & in-process backend
 │   │   ├── index.ts             # Main entry: Window lifecycle, in-process server initialization
-│   │   ├── ipc/                 # Electron IPC handlers (window controls, shell, native drag-and-drop)
+│   │   ├── ipc/                 # Electron IPC handlers (window controls, shell, downloads)
 │   │   └── server/              # Embedded backend engine (Express + WebSockets + SSH2 + SQLite)
-│   │       ├── auth/            # Local Auth (bcrypt + JWT) & KBS SSO
+│   │       ├── auth/            # Local Auth (bcrypt + JWT)
 │   │       ├── db/              # SQLite database engine & schema migrations
 │   │       ├── ssh/             # SSH2 manager, WebSocket PTY streamer, SFTP service
 │   │       ├── tunnels/         # Tunnel engine (-L, -R, -D SOCKS5, JumpHost)
@@ -142,6 +141,23 @@ npm test
 
 ---
 
+### 📦 Packaging & Distribution (Electron Builder)
+
+```bash
+# Package the application for the current platform:
+npm run dist
+
+# Package without creating an installer (unpacked directory only):
+npm run dist:dir
+
+# Package targeting specific platforms:
+npm run dist:win    # Windows
+npm run dist:mac    # macOS
+npm run dist:linux  # Linux
+```
+
+---
+
 ## 🔧 Configuration Options
 
 Environment variables can be optionally configured via `.env` file:
@@ -155,7 +171,6 @@ Environment variables can be optionally configured via `.env` file:
 | `DB_TYPE` | `sqlite` | Database engine: `sqlite` or `mongodb` |
 | `DB_PATH` | `server/data/nodessh.db` | Location of the SQLite database file (when `DB_TYPE=sqlite`) |
 | `MONGODB_URI` | `mongodb://127.0.0.1:27017/nodessh` | MongoDB connection URI (when `DB_TYPE=mongodb`) |
-| `KBS_SSO_CLIENT_ID` | `nodessh` | Client ID for KBS Cloud SSO authentication |
 
 ---
 

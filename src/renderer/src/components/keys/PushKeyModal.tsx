@@ -14,9 +14,9 @@ export const PushKeyModal: React.FC = () => {
   } = useApp();
 
   const [selectedProfileId, setSelectedProfileId] = useState('');
-  const [host, setHost] = useState('192.168.1.150');
+  const [host, setHost] = useState('');
   const [port, setPort] = useState(22);
-  const [username, setUsername] = useState('ubuntu');
+  const [username, setUsername] = useState('root');
   const [password, setPassword] = useState('');
   const [isPushing, setIsPushing] = useState(false);
 

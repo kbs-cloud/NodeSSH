@@ -4,22 +4,18 @@ import {
   Radio,
   FolderTree,
   Palette,
-  Sparkles,
   Keyboard,
   Settings,
-  Shield,
-  User,
   Check,
-  ChevronDown,
   Minus,
   Square,
   X,
   Copy,
+  Code2,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useTerminal } from '../../context/TerminalContext';
 import { useApp } from '../../context/AppContext';
-import { useAuth } from '../../context/AuthContext';
 import { QuickConnectBar } from '../profiles/QuickConnectBar';
 import { AppTheme } from '../../types';
 
@@ -37,11 +33,8 @@ export const Header: React.FC = () => {
     snippets,
     setIsSettingsOpen,
     setIsShortcutsOpen,
-    setIsAuthModalOpen,
     setActiveView,
   } = useApp();
-
-  const { user, isAuthenticated } = useAuth();
 
   const [isThemeOpen, setIsThemeOpen] = useState(false);
   const [isSnippetsOpen, setIsSnippetsOpen] = useState(false);
@@ -201,18 +194,16 @@ export const Header: React.FC = () => {
           <Settings className="w-4 h-4" />
         </button>
 
-        {/* User Account / Auth Avatar Pill */}
-        <button
-          onClick={() => setIsAuthModalOpen(true)}
-          className="flex items-center gap-1.5 pl-2 pr-2.5 py-1 rounded-lg bg-[#0e1222] hover:bg-[#151b30] border border-white/10 transition-colors text-xs ml-1"
-        >
-          <div className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-300 font-bold flex items-center justify-center text-[10px]">
-            {user?.username ? user.username[0].toUpperCase() : 'U'}
-          </div>
-          <span className="text-slate-200 font-medium hidden sm:inline">
-            {user?.username || 'Sign In'}
-          </span>
-        </button>
+        {/* Developer Tools (Electron F12 / Ctrl+Shift+I) */}
+        {isElectron && (
+          <button
+            onClick={() => (window as any).electronAPI?.toggleDevTools?.()}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-white/5 transition-colors"
+            title="Toggle Developer Tools (F12 / Ctrl+Shift+I)"
+          >
+            <Code2 className="w-4 h-4" />
+          </button>
+        )}
 
         {/* Electron Cyberpunk Window Controls */}
         {isElectron && (

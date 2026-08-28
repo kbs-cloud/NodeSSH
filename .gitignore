@@ -4,6 +4,8 @@ node_modules/
 
 # Production / Distribution Builds
 dist/
+release/
+build/
 client/dist/
 server/dist/
 electron/dist/
@@ -20,9 +22,6 @@ data/
 *.db-shm
 server/data/*
 nodessh-drag/
-
-# KBS Shared local sync
-_kbs_shared/
 
 # Logs & Testing Artifacts
 npm-debug.log*

@@ -85,9 +85,6 @@ interface AppContextType {
   isShortcutsOpen: boolean;
   setIsShortcutsOpen: (open: boolean) => void;
 
-  isAuthModalOpen: boolean;
-  setIsAuthModalOpen: (open: boolean) => void;
-
   // Host Key Verification (TOFU & MITM Protection)
   hostKeyPrompt: {
     host: string;
@@ -144,7 +141,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -439,9 +435,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         isShortcutsOpen,
         setIsShortcutsOpen,
-
-        isAuthModalOpen,
-        setIsAuthModalOpen,
 
         hostKeyPrompt,
         setHostKeyPrompt,

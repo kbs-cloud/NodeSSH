@@ -23,12 +23,13 @@ import {
 } from 'lucide-react';
 import { SFTPFileItem } from '../../types';
 import { useApp } from '../../context/AppContext';
-import { api, getApiBase } from '../../services/api';
+import { api, getApiBase, ProfileTarget } from '../../services/api';
+import { storage } from '../../services/storage';
 
 interface SftpFileListProps {
   files: SFTPFileItem[];
   currentPath: string;
-  profileId?: string;
+  profileTarget?: ProfileTarget;
   onNavigate: (path: string) => void;
   onRefresh: () => void;
   onDownload?: (file: SFTPFileItem) => void;
@@ -41,7 +42,7 @@ interface SftpFileListProps {
 export const SftpFileList: React.FC<SftpFileListProps> = ({
   files,
   currentPath,
-  profileId,
+  profileTarget,
   onNavigate,
   onRefresh,
   onDownload,
@@ -155,17 +156,7 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
     showToast(isDir ? `Compressing & downloading "${file.name}" as .zip...` : `Downloading ${file.name}...`, 'info');
 
     try {
-      const q = new URLSearchParams({ path: file.path });
-      if (profileId) q.set('profileId', profileId);
-
-      const token = localStorage.getItem('nodessh_token') || '';
-      const res = await fetch(`${getApiBase()}/sftp/download?${q.toString()}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-
-      if (!res.ok) throw new Error('Download request failed');
-
-      const blob = await res.blob();
+      const blob = await api.downloadSftpWithProgress(file.path, profileTarget, isDir);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -183,7 +174,7 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
   const handleDelete = async (file: SFTPFileItem) => {
     if (window.confirm(`Are you sure you want to permanently delete "${file.name}"?`)) {
       try {
-        await api.deleteSftpFile(file.path, file.type === 'directory', profileId);
+        await api.deleteSftpFile(file.path, file.type === 'directory', profileTarget);
         showToast(`Deleted ${file.name}`, 'info');
         onRefresh();
       } catch (err: any) {
@@ -204,32 +195,49 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
     onNavigate(upPath);
   };
 
+  const handleItemDragStart = (e: React.DragEvent, file: SFTPFileItem) => {
+    e.stopPropagation();
+    e.dataTransfer.setData('application/json', JSON.stringify({ file, profileTarget }));
+    e.dataTransfer.setData('text/plain', file.path);
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+
   return (
-    <div className="flex-1 overflow-y-auto text-xs select-none">
-      <table className="w-full text-left border-collapse">
-        <thead className="sticky top-0 bg-[#0e1222] border-b border-[var(--theme-border,#1e2640)] text-[11px] font-semibold text-slate-400 z-10">
-          <tr>
-            <th className="py-2 pl-3 pr-2">Name</th>
-            <th className="py-2 px-2 hidden sm:table-cell w-20">Size</th>
-            <th className="py-2 px-2 hidden md:table-cell w-24">Perms</th>
-            <th className="py-2 px-2 hidden lg:table-cell w-32">Modified</th>
-            <th className="py-2 pr-3 pl-2 text-right w-24">Actions</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-white/5">
+    <div className="flex-1 overflow-auto text-xs select-none">
+      {/*
+        This uses a plain flex/div layout rather than a real <table>/<tr>
+        on purpose: Chromium does not reliably fire 'dragstart' on
+        HTMLTableRowElement (<tr>, even with CSS display overridden), which
+        made every file row here permanently undraggable no matter what the
+        drag handler itself did. Divs styled to look like a table sidestep
+        that entirely. Verified directly against this app's own Electron/
+        Chromium build before making this change.
+      */}
+      <div className="w-full text-left" role="table">
+        <div
+          role="row"
+          className="flex sticky top-0 bg-[#0e1222] border-b border-[var(--theme-border,#1e2640)] text-[11px] font-semibold text-slate-400 z-10"
+        >
+          <div role="columnheader" className="flex-1 py-2 pl-3 pr-2">Name</div>
+          <div role="columnheader" className="hidden sm:block py-2 px-2 w-20 flex-shrink-0">Size</div>
+          <div role="columnheader" className="hidden md:block py-2 px-2 w-24 flex-shrink-0">Perms</div>
+          <div role="columnheader" className="hidden lg:block py-2 px-2 w-32 flex-shrink-0">Modified</div>
+          <div role="columnheader" className="py-2 pr-3 pl-2 text-right w-24 flex-shrink-0">Actions</div>
+        </div>
+
+        <div role="rowgroup" className="divide-y divide-white/5">
           {/* Top Parent Directory Row ("..") */}
           {currentPath !== '/' && (
-            <tr
+            <div
+              role="row"
               onClick={handleGoUp}
-              className="hover:bg-cyan-500/10 transition-colors cursor-pointer text-slate-400 hover:text-cyan-300"
+              className="flex items-center hover:bg-cyan-500/10 transition-colors cursor-pointer text-slate-400 hover:text-cyan-300"
             >
-              <td className="py-1.5 pl-3 pr-2" colSpan={5}>
-                <div className="flex items-center gap-2 font-mono text-[11px] font-semibold">
-                  <CornerLeftUp className="w-4 h-4 text-cyan-400" />
-                  <span>.. (Up to parent directory)</span>
-                </div>
-              </td>
-            </tr>
+              <div role="cell" className="py-1.5 pl-3 pr-2 flex items-center gap-2 font-mono text-[11px] font-semibold">
+                <CornerLeftUp className="w-4 h-4 text-cyan-400" />
+                <span>.. (Up to parent directory)</span>
+              </div>
+            </div>
           )}
 
           {files.map(file => {
@@ -238,38 +246,11 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
             const isArchive = !isDir && isArchiveFile(file.name);
 
             return (
-              <tr
+              <div
+                role="row"
                 key={file.path}
                 draggable={true}
-                onDragStart={e => {
-                  const isElectron = Boolean((window as any).electronAPI?.startDrag);
-                  const mimeType = isDir ? 'application/zip' : 'application/octet-stream';
-                  const downloadName = isDir ? `${file.name}.zip` : file.name;
-                  const q = new URLSearchParams({ path: file.path });
-                  const apiBase = getApiBase();
-                  const downloadUrl = apiBase.startsWith('http')
-                    ? `${apiBase}/sftp/download?${q.toString()}`
-                    : `${window.location.origin}${apiBase}/sftp/download?${q.toString()}`;
-
-                  const token = localStorage.getItem('nodessh_token') || '';
-                  if (isElectron) {
-                    e.preventDefault();
-                    (window as any).electronAPI.startDrag({
-                      path: file.path,
-                      name: file.name,
-                      isDirectory: isDir,
-                      profileId,
-                      token,
-                    });
-                    return;
-                  }
-
-                  // Standard Chromium desktop drag-to-download format & browser/fallback
-                  e.dataTransfer.setData('DownloadURL', `${mimeType}:${downloadName}:${downloadUrl}`);
-                  e.dataTransfer.setData('application/json', JSON.stringify({ file, profileId }));
-                  e.dataTransfer.setData('text/plain', file.path);
-                  e.dataTransfer.effectAllowed = 'copy';
-                }}
+                onDragStart={e => handleItemDragStart(e, file)}
                 onClick={() => setSelectedFilePath(file.path)}
                 onDoubleClick={() => {
                   if (isDir) {
@@ -278,32 +259,38 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
                     setEditingFile(file);
                   }
                 }}
-                className={`group transition-colors cursor-grab active:cursor-grabbing ${
+                style={{ WebkitUserDrag: 'element', userSelect: 'none' } as React.CSSProperties}
+                className={`group flex items-center transition-colors cursor-grab active:cursor-grabbing select-none ${
                   isSelected ? 'bg-cyan-950/40 border-l-2 border-cyan-400' : 'hover:bg-white/5'
                 }`}
                 title={
                   isDir
-                    ? `Drag to desktop/dropzone to download "${file.name}" as .zip archive`
-                    : `Drag to download "${file.name}"`
+                    ? `Drag folder "${file.name}" to Desktop / Explorer or bottom bar`
+                    : `Drag file "${file.name}" to Desktop / Explorer or bottom bar`
                 }
               >
                 {/* Name & Icon */}
-                <td className="py-1.5 pl-3 pr-2">
-                  <div
-                    onClick={e => {
-                      if (isDir) {
-                        e.stopPropagation();
-                        onNavigate(file.path);
-                      }
-                    }}
-                    className="flex items-center gap-2"
-                  >
-                    <GripVertical className="w-3 h-3 text-slate-600 opacity-0 group-hover:opacity-60 flex-shrink-0" />
+                {/*
+                  min-w-[140px] (not min-w-0): this column competes for space
+                  with several fixed-width sibling columns below, and the
+                  docked SFTP panel can be much narrower than all of them
+                  combined (e.g. 320px vs 400px of fixed columns) - min-w-0
+                  let this shrink all the way to 0px there, making the name
+                  invisible. 140px leaves ~75px of actual text after the
+                  grip/file icons, gaps, and padding - enough for a readable
+                  truncated name. When the panel is too narrow for every
+                  column at once, the row now overflows and scrolls (see the
+                  overflow-x-auto on the scroll container below) instead of
+                  silently hiding content.
+                */}
+                <div role="cell" className="flex-1 min-w-[140px] py-1.5 pl-3 pr-2 select-none">
+                  <div className="flex items-center gap-2 select-none">
+                    <GripVertical className="w-3 h-3 text-slate-500 opacity-60 group-hover:opacity-100 flex-shrink-0" />
                     {getFileIcon(file)}
                     <span
                       className={`font-mono truncate max-w-[200px] ${
                         isDir
-                          ? 'text-cyan-300 font-medium hover:underline hover:text-cyan-200'
+                          ? 'text-cyan-300 font-medium hover:text-cyan-200'
                           : 'text-slate-200 group-hover:text-white'
                       }`}
                       title={file.name}
@@ -311,15 +298,15 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
                       {file.name}
                     </span>
                   </div>
-                </td>
+                </div>
 
                 {/* Size */}
-                <td className="py-1.5 px-2 text-slate-400 font-mono text-[11px] hidden sm:table-cell">
+                <div role="cell" className="hidden sm:block py-1.5 px-2 w-20 flex-shrink-0 text-slate-400 font-mono text-[11px]">
                   {isDir ? '-' : formatSize(file.size)}
-                </td>
+                </div>
 
                 {/* Perms */}
-                <td className="py-1.5 px-2 font-mono text-[11px] text-slate-500 hidden md:table-cell">
+                <div role="cell" className="hidden md:block py-1.5 px-2 w-24 flex-shrink-0 font-mono text-[11px] text-slate-500">
                   <button
                     onClick={e => {
                       e.stopPropagation();
@@ -330,20 +317,20 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
                   >
                     {file.permissions}
                   </button>
-                </td>
+                </div>
 
                 {/* Date */}
-                <td className="py-1.5 px-2 text-slate-500 text-[11px] hidden lg:table-cell">
+                <div role="cell" className="hidden lg:block py-1.5 px-2 w-32 flex-shrink-0 text-slate-500 text-[11px]">
                   {new Date(file.modifyTime).toLocaleDateString(undefined, {
                     month: 'short',
                     day: 'numeric',
                     hour: '2-digit',
                     minute: '2-digit',
                   })}
-                </td>
+                </div>
 
                 {/* Actions */}
-                <td className="py-1.5 pr-3 pl-2 text-right relative">
+                <div role="cell" className="py-1.5 pr-3 pl-2 w-24 flex-shrink-0 text-right relative">
                   <div className="flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100">
                     {!isDir && (
                       <button
@@ -364,9 +351,9 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
                         handleDownload(file);
                       }}
                       className="p-1 rounded text-slate-400 hover:text-emerald-400 hover:bg-white/10"
-                      title={isDir ? 'Download entire folder as .zip archive' : 'Download file'}
+                      title={isDir ? 'Download folder' : 'Download file'}
                     >
-                      {isDir ? <Archive className="w-3.5 h-3.5 text-amber-400" /> : <Download className="w-3.5 h-3.5" />}
+                      <Download className="w-3.5 h-3.5 text-emerald-400" />
                     </button>
 
                     <button
@@ -407,10 +394,10 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
                               handleDownload(file);
                               setActiveMenuFile(null);
                             }}
-                            className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-amber-300"
+                            className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-white/10 text-emerald-300"
                           >
-                            <Archive className="w-3.5 h-3.5 text-amber-400" />
-                            <span>Download as .ZIP</span>
+                            <Download className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>Download Folder</span>
                           </button>
                         </>
                       ) : (
@@ -547,20 +534,20 @@ export const SftpFileList: React.FC<SftpFileListProps> = ({
                       </button>
                     </div>
                   )}
-                </td>
-              </tr>
+                </div>
+              </div>
             );
           })}
 
           {files.length === 0 && (
-            <tr>
-              <td colSpan={5} className="py-8 text-center text-slate-500 italic">
+            <div role="row">
+              <div role="cell" className="py-8 text-center text-slate-500 italic">
                 Empty directory
-              </td>
-            </tr>
+              </div>
+            </div>
           )}
-        </tbody>
-      </table>
+        </div>
+      </div>
     </div>
   );
 };

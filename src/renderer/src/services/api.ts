@@ -1,9 +1,47 @@
 import { ServerProfile, KeyVaultItem, SSHTunnel, Snippet, SFTPFileItem, User } from '../types';
 import { storage } from './storage';
 
+export type ProfileTarget = string | Partial<ServerProfile> | ServerProfile | undefined | null;
+
+function appendSftpParams(params: URLSearchParams, target?: ProfileTarget): void {
+  if (!target) return;
+  if (typeof target === 'string') {
+    if (target.trim()) params.set('profileId', target.trim());
+    return;
+  }
+  if (target.id) params.set('profileId', target.id);
+  if (target.host) params.set('host', target.host);
+  if (target.port) params.set('port', String(target.port));
+  if (target.username) params.set('username', target.username);
+  if (target.password) params.set('password', target.password);
+  if (target.keyId) params.set('keyId', target.keyId);
+  if (target.jumpHostId) params.set('jumpHostId', target.jumpHostId);
+  if (target.sftpCommand) params.set('sftpCommand', target.sftpCommand);
+}
+
+function getSftpBodyParams(target?: ProfileTarget): Record<string, any> {
+  if (!target) return {};
+  if (typeof target === 'string') {
+    return target.trim() ? { profileId: target.trim() } : {};
+  }
+  const body: Record<string, any> = {};
+  if (target.id) body.profileId = target.id;
+  if (target.host) body.host = target.host;
+  if (target.port) body.port = target.port;
+  if (target.username) body.username = target.username;
+  if (target.password) body.password = target.password;
+  if (target.keyId) body.keyId = target.keyId;
+  if (target.jumpHostId) body.jumpHostId = target.jumpHostId;
+  if (target.sftpCommand) body.sftpCommand = target.sftpCommand;
+  return body;
+}
+
 export function getApiBase(): string {
   if (typeof window === 'undefined') return 'http://127.0.0.1:3001/api';
   if (window.location.protocol === 'file:' || !window.location.host) {
+    return 'http://127.0.0.1:3001/api';
+  }
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
     return 'http://127.0.0.1:3001/api';
   }
   return '/api';
@@ -130,7 +168,7 @@ class ApiClient {
 
   async saveProfile(profile: ServerProfile): Promise<ServerProfile> {
     try {
-      const isNew = !profile.id || profile.id.startsWith('temp-') || profile.id.startsWith('prof-');
+      const isNew = !profile.id || profile.id.startsWith('temp-');
       const url = isNew ? `${this.baseUrl}/profiles` : `${this.baseUrl}/profiles/${profile.id}`;
       const method = isNew ? 'POST' : 'PUT';
       let res = await fetch(url, {
@@ -525,28 +563,32 @@ class ApiClient {
   }
 
   // --- SFTP ---
-  async listSftpFiles(path: string, profileId?: string): Promise<SFTPFileItem[]> {
+  async listSftpFiles(path?: string, target?: ProfileTarget): Promise<SFTPFileItem[] & { resolvedPath?: string }> {
     try {
-      const q = new URLSearchParams({ path });
-      if (profileId) q.set('profileId', profileId);
+      const q = new URLSearchParams();
+      if (path && path.trim()) q.set('path', path.trim());
+      appendSftpParams(q, target);
       const res = await fetch(`${this.baseUrl}/sftp/list?${q.toString()}`, {
         headers: this.getHeaders(),
       });
       if (res.ok) {
         const data = await res.json();
-        const items = Array.isArray(data) ? data : data.items || [];
-        return items.map((item: any) => ({
+        const rawItems = Array.isArray(data) ? data : data.items || [];
+        const resolvedPath = data.path || path || '/';
+        const items = rawItems.map((item: any) => ({
           name: item.filename || item.name,
-          path: `${path.replace(/\/$/, '')}/${item.filename || item.name}`,
+          path: `${resolvedPath === '/' ? '' : resolvedPath.replace(/\/$/, '')}/${item.filename || item.name}`,
           type: item.isDirectory ? 'directory' : item.isSymbolicLink ? 'symlink' : 'file',
           size: item.size || 0,
           permissions: item.permissions || '0644',
           modifyTime: item.modifyTime ? (typeof item.modifyTime === 'number' ? item.modifyTime : new Date(item.modifyTime).getTime()) : Date.now(),
           owner: item.uid ? String(item.uid) : 'user',
         }));
+        (items as any).resolvedPath = resolvedPath;
+        return items as SFTPFileItem[] & { resolvedPath?: string };
       }
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || err.message || `Failed to list directory: ${path}`);
+      throw new Error(err.error || err.message || `Failed to list directory: ${path || '.'}`);
     } catch (e: any) {
       if (e.message && e.message.includes('fetch')) {
         throw new Error('NodeSSH backend server is unreachable. Ensure the backend is running on port 3001.');
@@ -555,10 +597,10 @@ class ApiClient {
     }
   }
 
-  async readSftpFile(filePath: string, profileId?: string): Promise<string> {
+  async readSftpFile(filePath: string, target?: ProfileTarget): Promise<string> {
     try {
       const q = new URLSearchParams({ path: filePath });
-      if (profileId) q.set('profileId', profileId);
+      appendSftpParams(q, target);
       const res = await fetch(`${this.baseUrl}/sftp/read?${q.toString()}`, {
         headers: this.getHeaders(),
       });
@@ -581,12 +623,13 @@ class ApiClient {
     }
   }
 
-  async writeSftpFile(filePath: string, content: string, profileId?: string): Promise<void> {
+  async writeSftpFile(filePath: string, content: string, target?: ProfileTarget): Promise<void> {
     try {
+      const body = { path: filePath, content, ...getSftpBodyParams(target) };
       const res = await fetch(`${this.baseUrl}/sftp/write`, {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify({ path: filePath, content, profileId }),
+        body: JSON.stringify(body),
       });
       if (res.ok) return;
       const err = await res.json().catch(() => ({}));
@@ -599,12 +642,13 @@ class ApiClient {
     }
   }
 
-  async createSftpFolder(dirPath: string, profileId?: string): Promise<void> {
+  async createSftpFolder(dirPath: string, target?: ProfileTarget): Promise<void> {
     try {
+      const body = { path: dirPath, ...getSftpBodyParams(target) };
       const res = await fetch(`${this.baseUrl}/sftp/mkdir`, {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify({ path: dirPath, profileId }),
+        body: JSON.stringify(body),
       });
       if (res.ok) return;
       const err = await res.json().catch(() => ({}));
@@ -617,12 +661,13 @@ class ApiClient {
     }
   }
 
-  async chmodSftpFile(filePath: string, mode: string | number, profileId?: string): Promise<void> {
+  async chmodSftpFile(filePath: string, mode: string | number, target?: ProfileTarget): Promise<void> {
     try {
+      const body = { path: filePath, mode, ...getSftpBodyParams(target) };
       const res = await fetch(`${this.baseUrl}/sftp/chmod`, {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify({ path: filePath, mode, profileId }),
+        body: JSON.stringify(body),
       });
       if (res.ok) return;
       const err = await res.json().catch(() => ({}));
@@ -635,12 +680,13 @@ class ApiClient {
     }
   }
 
-  async deleteSftpFile(filePath: string, isDirectory: boolean = false, profileId?: string): Promise<void> {
+  async deleteSftpFile(filePath: string, isDirectory: boolean = false, target?: ProfileTarget): Promise<void> {
     try {
+      const body = { path: filePath, isDirectory, ...getSftpBodyParams(target) };
       const res = await fetch(`${this.baseUrl}/sftp/delete`, {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify({ path: filePath, isDirectory, profileId }),
+        body: JSON.stringify(body),
       });
       if (res.ok) return;
       const err = await res.json().catch(() => ({}));
@@ -653,49 +699,109 @@ class ApiClient {
     }
   }
 
+  async getTransferStatus(transferId: string): Promise<any> {
+    try {
+      const res = await fetch(`${this.baseUrl}/sftp/transfer/status?transferId=${encodeURIComponent(transferId)}`, {
+        headers: this.getHeaders(),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {}
+    return null;
+  }
+
   async downloadSftpWithProgress(
     remotePath: string,
-    profileId?: string,
+    target?: ProfileTarget,
     isDirectory?: boolean,
-    onProgress?: (percent: number, loaded: number, total: number) => void,
+    onProgress?: (
+      percent: number,
+      loaded: number,
+      total: number,
+      details?: {
+        currentFile?: string;
+        exploredFiles?: number;
+        exploredDirs?: number;
+        processedFiles?: number;
+      }
+    ) => void,
     signal?: AbortSignal
   ): Promise<Blob> {
-    const q = new URLSearchParams({ path: remotePath });
-    if (profileId) q.set('profileId', profileId);
+    const transferId = 'xfer-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    const q = new URLSearchParams({ path: remotePath, transferId });
+    appendSftpParams(q, target);
 
     const token = storage.getToken();
-    const res = await fetch(`${this.baseUrl}/sftp/download?${q.toString()}`, {
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      signal,
-    });
 
-    if (!res.ok) {
-      let errText = 'Download failed';
-      try {
-        const errJson = await res.json();
-        if (errJson.error) errText = errJson.error;
-      } catch {}
-      throw new Error(errText);
+    let pollInterval: any = null;
+    let latestDetails: {
+      currentFile?: string;
+      exploredFiles?: number;
+      exploredDirs?: number;
+      processedFiles?: number;
+    } = {};
+
+    const startPolling = () => {
+      pollInterval = setInterval(async () => {
+        if (signal?.aborted) return;
+        const status = await this.getTransferStatus(transferId);
+        if (status) {
+          latestDetails = {
+            currentFile: status.currentFile,
+            exploredFiles: status.exploredFiles,
+            exploredDirs: status.exploredDirs,
+            processedFiles: status.processedFiles,
+          };
+          if (isDirectory && onProgress && status.percent !== undefined) {
+            onProgress(
+              status.percent,
+              status.processedBytes || 0,
+              status.totalBytes || 0,
+              latestDetails
+            );
+          }
+        }
+      }, 250);
+    };
+
+    if (isDirectory) {
+      startPolling();
     }
-
-    if (!res.body) {
-      const blob = await res.blob();
-      if (onProgress) onProgress(100, blob.size, blob.size);
-      return blob;
-    }
-
-    const contentLength = res.headers.get('Content-Length');
-    const total = contentLength ? parseInt(contentLength, 10) : 0;
-    const reader = res.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let loaded = 0;
 
     try {
+      const res = await fetch(`${this.baseUrl}/sftp/download?${q.toString()}`, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        signal,
+      });
+
+      if (!res.ok) {
+        let errText = 'Download failed';
+        try {
+          const errJson = await res.json();
+          if (errJson.error) errText = errJson.error;
+        } catch {}
+        throw new Error(errText);
+      }
+
+      if (!res.body) {
+        const blob = await res.blob();
+        if (onProgress) onProgress(100, blob.size, blob.size, latestDetails);
+        return blob;
+      }
+
+      const contentLength = res.headers.get('Content-Length');
+      const total = contentLength ? parseInt(contentLength, 10) : 0;
+      const reader = res.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let loaded = 0;
+
       while (true) {
         if (signal?.aborted) {
           reader.cancel().catch(() => {});
+          this.abortTransfer(transferId).catch(() => {});
           throw new DOMException('Download aborted', 'AbortError');
         }
 
@@ -704,26 +810,33 @@ class ApiClient {
         if (value) {
           chunks.push(value);
           loaded += value.length;
-          const percent = total > 0 ? Math.min(99, Math.round((loaded / total) * 100)) : 0;
-          if (onProgress) onProgress(percent, loaded, total);
+          const percent = total > 0
+            ? Math.min(99, Math.round((loaded / total) * 100))
+            : (latestDetails.exploredFiles && latestDetails.exploredFiles > 0
+                ? Math.min(99, Math.round(((latestDetails.processedFiles || 0) / latestDetails.exploredFiles) * 100))
+                : 0);
+          if (onProgress) onProgress(percent, loaded, total, latestDetails);
         }
       }
+
+      if (onProgress) onProgress(100, loaded, total || loaded, latestDetails);
+      const mimeType = isDirectory ? 'application/zip' : 'application/octet-stream';
+      return new Blob(chunks as any[], { type: mimeType });
     } catch (e: any) {
       if (e.name === 'AbortError' || signal?.aborted) {
+        this.abortTransfer(transferId).catch(() => {});
         throw new Error('Download aborted');
       }
       throw e;
+    } finally {
+      if (pollInterval) clearInterval(pollInterval);
     }
-
-    if (onProgress) onProgress(100, loaded, total || loaded);
-    const mimeType = isDirectory ? 'application/zip' : 'application/octet-stream';
-    return new Blob(chunks as any[], { type: mimeType });
   }
 
   async uploadSftpFile(
     file: File,
     remoteDir: string,
-    profileId?: string,
+    target?: ProfileTarget,
     onProgress?: (percent: number, loaded: number, total: number) => void,
     signal?: AbortSignal
   ): Promise<void> {
@@ -735,7 +848,20 @@ class ApiClient {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('remoteDir', remoteDir);
-      if (profileId) formData.append('profileId', profileId);
+      if (target) {
+        if (typeof target === 'string') {
+          if (target.trim()) formData.append('profileId', target.trim());
+        } else {
+          if (target.id) formData.append('profileId', target.id);
+          if (target.host) formData.append('host', target.host);
+          if (target.port) formData.append('port', String(target.port));
+          if (target.username) formData.append('username', target.username);
+          if (target.password) formData.append('password', target.password);
+          if (target.keyId) formData.append('keyId', target.keyId);
+          if (target.jumpHostId) formData.append('jumpHostId', target.jumpHostId);
+          if (target.sftpCommand) formData.append('sftpCommand', target.sftpCommand);
+        }
+      }
 
       const xhr = new XMLHttpRequest();
       xhr.open('POST', `${this.baseUrl}/sftp/upload`);
@@ -791,12 +917,13 @@ class ApiClient {
     });
   }
 
-  async remoteExtract(archivePath: string, targetDir?: string, profileId?: string): Promise<{ message: string }> {
+  async remoteExtract(archivePath: string, targetDir?: string, target?: ProfileTarget): Promise<{ message: string }> {
     try {
+      const body = { archivePath, targetDir, ...getSftpBodyParams(target) };
       const res = await fetch(`${this.baseUrl}/sftp/extract`, {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify({ archivePath, targetDir, profileId }),
+        body: JSON.stringify(body),
       });
       if (res.ok) {
         return await res.json();
@@ -811,12 +938,13 @@ class ApiClient {
     }
   }
 
-  async remoteCompress(sourcePaths: string[], targetArchive: string, profileId?: string): Promise<{ message: string }> {
+  async remoteCompress(sourcePaths: string[], targetArchive: string, target?: ProfileTarget): Promise<{ message: string }> {
     try {
+      const body = { sourcePaths, targetArchive, ...getSftpBodyParams(target) };
       const res = await fetch(`${this.baseUrl}/sftp/compress`, {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify({ sourcePaths, targetArchive, profileId }),
+        body: JSON.stringify(body),
       });
       if (res.ok) {
         return await res.json();

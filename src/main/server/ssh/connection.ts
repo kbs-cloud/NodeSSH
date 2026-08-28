@@ -63,7 +63,10 @@ export async function createSSHConnection(options: SSHConnectionOptions): Promis
     } else if (!host) {
       throw new Error(`Profile with ID '${options.profileId}' not found and no host provided`);
     }
-  } else if (!privateKey && options.keyId) {
+  }
+
+  // Resolve direct keyId if privateKey not yet loaded
+  if (!privateKey && options.keyId) {
     const keyRecord = getKeyById(userId, options.keyId);
     if (keyRecord) {
       privateKey = decryptPrivateKey(keyRecord.encrypted_private_key);

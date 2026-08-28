@@ -16,7 +16,10 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({ file, onClos
   const { showToast, profiles } = useApp();
   const { activeTab } = useTerminal();
 
-  const profileId = activeTab?.profileId || activeTab?.profile?.id || (profiles.length > 0 ? profiles[0].id : undefined);
+  const activeProfile =
+    activeTab?.profile ||
+    (activeTab?.profileId ? profiles.find(p => p.id === activeTab.profileId) : undefined) ||
+    (profiles.length > 0 ? profiles[0] : undefined);
 
   // Permissions state
   const [ownerRead, setOwnerRead] = useState(true);
@@ -68,7 +71,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({ file, onClos
   const handleApply = async () => {
     setIsSaving(true);
     try {
-      await api.chmodSftpFile(file.path, octalString, profileId);
+      await api.chmodSftpFile(file.path, octalString, activeProfile);
       showToast(`Permissions updated to ${octalString} for ${file.name}`, 'success');
       onSuccess?.();
       onClose();

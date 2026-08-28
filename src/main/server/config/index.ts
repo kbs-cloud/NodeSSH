@@ -1,5 +1,6 @@
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import dotenv from 'dotenv';
 
 // Load .env file
@@ -40,7 +41,7 @@ function resolveDefaultDataDir(): string {
     // Standalone / test fallback
   }
 
-  return path.resolve(process.cwd(), 'data');
+  return path.join(os.homedir(), '.nodessh', 'data');
 }
 
 function resolveDefaultClientDist(): string {
@@ -48,15 +49,26 @@ function resolveDefaultClientDist(): string {
     return path.resolve(process.env.CLIENT_DIST_PATH);
   }
 
+  let appRoot = process.cwd();
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const electron = require('electron');
+    const electronApp = electron?.app || electron?.remote?.app;
+    if (electronApp && typeof electronApp.getAppPath === 'function') {
+      appRoot = electronApp.getAppPath();
+    }
+  } catch {}
+
   const candidates = [
-    path.resolve(process.cwd(), 'src/renderer/dist'),
+    path.join(appRoot, 'dist/renderer'),
+    path.resolve(__dirname, '../../renderer'),
+    path.resolve(__dirname, '../../../renderer'),
+    path.resolve(__dirname, '../../../../renderer'),
     path.resolve(process.cwd(), 'dist/renderer'),
+    path.resolve(process.cwd(), 'src/renderer/dist'),
     path.resolve(process.cwd(), 'renderer/dist'),
     path.resolve(process.cwd(), 'client/dist'),
     path.resolve(__dirname, '../../../renderer/dist'),
-    path.resolve(__dirname, '../../../../renderer/dist'),
-    path.resolve(__dirname, '../../renderer/dist'),
-    path.resolve(__dirname, '../../../client/dist'),
   ];
 
   for (const candidate of candidates) {
@@ -84,12 +96,6 @@ class ServerConfig {
   public jwtExpiresIn: string = process.env.JWT_EXPIRES_IN || '7d';
   public vaultEncryptionKey: string =
     process.env.VAULT_ENCRYPTION_KEY || 'nodessh-vault-master-key-32-byte';
-
-  public kbs = {
-    clientId: process.env.KBS_SSO_CLIENT_ID || 'nodessh',
-    authServerUrl: process.env.KBS_AUTH_SERVER_URL || 'http://localhost:19001',
-    hubUrl: process.env.KBS_HUB_URL || 'http://localhost:19000',
-  };
 
   get port(): number {
     return this._port;

@@ -11,7 +11,6 @@ import { ProfileManager } from '../profiles/ProfileManager';
 import { TunnelDashboard } from '../tunnels/TunnelDashboard';
 import { KeyVault } from '../keys/KeyVault';
 import { SnippetLibrary } from '../snippets/SnippetLibrary';
-import { AuthModal } from '../auth/AuthModal';
 import { HostKeyModal } from '../keys/HostKeyModal';
 import { SettingsModal } from '../settings/SettingsModal';
 import { ShortcutsModal } from '../settings/ShortcutsModal';
@@ -26,8 +25,6 @@ export const AppLayout: React.FC = () => {
     setEditingFile,
     editingPermissionsFile,
     setEditingPermissionsFile,
-    isAuthModalOpen,
-    setIsAuthModalOpen,
     hostKeyPrompt,
     resolveHostKeyPrompt,
     toast,
@@ -183,7 +180,6 @@ export const AppLayout: React.FC = () => {
         file={editingPermissionsFile}
         onClose={() => setEditingPermissionsFile(null)}
       />
-      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
       <SettingsModal />
       <ShortcutsModal />
       <Toast toast={toast} />

@@ -34,6 +34,11 @@ interface TransferState {
   total?: number;
   mode: 'upload' | 'download';
   isFolder?: boolean;
+  currentFile?: string;
+  exploredFiles?: number;
+  exploredDirs?: number;
+  processedFiles?: number;
+  transferId?: string;
   abortController?: AbortController;
 }
 
@@ -48,8 +53,21 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
 
   const { showToast, profiles } = useApp();
 
-  const profileId = activeTab?.profileId || activeTab?.profile?.id || (profiles.length > 0 ? profiles[0].id : undefined);
-  const activeProfile = profiles.find(p => p.id === profileId) || activeTab?.profile;
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+
+  // Prioritize active tab's profile credentials, then tab's profileId, then manual selection, then first profile
+  const activeProfile =
+    (selectedProfileId ? profiles.find(p => p.id === selectedProfileId) : null) ||
+    activeTab?.profile ||
+    (activeTab?.profileId ? profiles.find(p => p.id === activeTab.profileId) : undefined) ||
+    (profiles.length > 0 ? profiles[0] : undefined);
+
+  // When active tab changes, sync to active tab's profile
+  useEffect(() => {
+    if (activeTab?.profile || activeTab?.profileId) {
+      setSelectedProfileId(null);
+    }
+  }, [activeTab?.id]);
 
   const [files, setFiles] = useState<SFTPFileItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -70,42 +88,39 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
     setPathInput(sftpCurrentPath);
   }, [sftpCurrentPath]);
 
-  // Set initial home directory based on profile configuration
+  // Set initial directory based on profile configuration or server default
   useEffect(() => {
     if (activeProfile?.defaultPath) {
       setSftpCurrentPath(activeProfile.defaultPath);
       setPathInput(activeProfile.defaultPath);
-    } else if (activeProfile?.username) {
-      const userHome = activeProfile.username === 'root' ? '/root' : `/home/${activeProfile.username}`;
-      if (!sftpCurrentPath || sftpCurrentPath === '/' || sftpCurrentPath.includes('ubuntu')) {
-        setSftpCurrentPath(userHome);
-        setPathInput(userHome);
-      }
-    } else if (!sftpCurrentPath) {
-      setSftpCurrentPath('/');
-      setPathInput('/');
+    } else {
+      // Allow server to dynamically resolve canonical home directory
+      setSftpCurrentPath('');
+      setPathInput('');
     }
-  }, [activeProfile?.id, activeProfile?.username, activeProfile?.defaultPath]);
+  }, [activeProfile?.id, activeProfile?.defaultPath, activeProfile?.host]);
 
-  const loadFiles = useCallback(async () => {
-    if (!sftpCurrentPath) return;
+  const loadFiles = useCallback(async (targetPath?: string) => {
+    const pathToQuery = targetPath !== undefined ? targetPath : (sftpCurrentPath || '');
     setIsLoading(true);
     try {
-      const list = await api.listSftpFiles(sftpCurrentPath, profileId);
+      const list = await api.listSftpFiles(pathToQuery, activeProfile);
       setFiles(list);
+      if (list.resolvedPath && list.resolvedPath !== sftpCurrentPath) {
+        setSftpCurrentPath(list.resolvedPath);
+        setPathInput(list.resolvedPath);
+      }
     } catch (err: any) {
       setFiles([]);
       showToast(err.message || 'Failed to load remote directory files', 'error');
     } finally {
       setIsLoading(false);
     }
-  }, [sftpCurrentPath, profileId, showToast]);
+  }, [sftpCurrentPath, activeProfile, setSftpCurrentPath, showToast]);
 
   useEffect(() => {
-    if (sftpCurrentPath) {
-      loadFiles();
-    }
-  }, [loadFiles, sftpCurrentPath]);
+    loadFiles();
+  }, [activeProfile?.id, activeProfile?.host, sftpCurrentPath]);
 
   const handleNavigate = (newPath: string) => {
     let clean = newPath.trim();
@@ -151,11 +166,107 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
       if (transferState.abortController) {
         transferState.abortController.abort();
       }
-      api.abortTransfer(transferState.name).catch(() => {});
+      const electron = (window as any).electronAPI;
+      if (transferState.transferId && electron?.cancelDownload) {
+        electron.cancelDownload(transferState.transferId);
+      }
+      if (transferState.transferId) {
+        api.abortTransfer(transferState.transferId).catch(() => {});
+      } else {
+        api.abortTransfer(transferState.name).catch(() => {});
+      }
       setTransferState(null);
       showToast('Transfer cancelled', 'info');
     }
   };
+
+  // Listen for native Electron downloads (e.g. from drag-out to desktop or browser downloads)
+  useEffect(() => {
+    const electron = (window as any).electronAPI;
+    if (!electron?.onDownloadStarted) return;
+
+    let pollTimer: any = null;
+
+    const unbindStart = electron.onDownloadStarted((data: any) => {
+      setTransferState({
+        active: true,
+        name: data.filename,
+        progress: 0,
+        loaded: 0,
+        total: data.totalBytes || 0,
+        mode: 'download',
+        isFolder: data.isFolder,
+        transferId: data.transferId,
+      });
+
+      // Poll status for dynamic folder details if it's a folder download
+      if (data.isFolder && data.transferId) {
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = setInterval(async () => {
+          const status = await api.getTransferStatus(data.transferId);
+          if (status) {
+            setTransferState(prev => {
+              if (!prev || prev.transferId !== data.transferId) return prev;
+              return {
+                ...prev,
+                currentFile: status.currentFile,
+                exploredFiles: status.exploredFiles,
+                exploredDirs: status.exploredDirs,
+                processedFiles: status.processedFiles,
+                progress: status.percent !== undefined ? status.percent : prev.progress,
+                loaded: status.processedBytes || prev.loaded,
+                total: status.totalBytes || prev.total,
+              };
+            });
+          }
+        }, 250);
+      }
+    });
+
+    const unbindProgress = electron.onDownloadProgress((data: any) => {
+      setTransferState(prev => {
+        if (!prev || prev.transferId !== data.transferId) return prev;
+        return {
+          ...prev,
+          progress: data.percent,
+          loaded: data.receivedBytes,
+          total: data.totalBytes,
+        };
+      });
+    });
+
+    const unbindCompleted = electron.onDownloadCompleted((data: any) => {
+      if (pollTimer) clearInterval(pollTimer);
+      setTransferState(prev => {
+        if (!prev || prev.transferId !== data.transferId) return prev;
+        return null;
+      });
+      const locationInfo = data.savePath ? ` to ${data.savePath}` : '';
+      showToast(
+        data.wasExtracted
+          ? `Extracted folder "${data.filename}"${locationInfo}`
+          : `Downloaded "${data.filename}"${locationInfo}`,
+        'success'
+      );
+    });
+
+    const unbindCancelled = electron.onDownloadCancelled((data: any) => {
+      if (pollTimer) clearInterval(pollTimer);
+      setTransferState(prev => {
+        if (!prev || prev.transferId !== data.transferId) return prev;
+        return null;
+      });
+      showToast('Transfer cancelled', 'info');
+    });
+
+    return () => {
+      if (pollTimer) clearInterval(pollTimer);
+      unbindStart?.();
+      unbindProgress?.();
+      unbindCompleted?.();
+      unbindCancelled?.();
+    };
+  }, [showToast]);
 
   // Single file uploader with live progress tracking & cancel support
   const uploadSingleFile = async (file: File) => {
@@ -176,7 +287,7 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
       await api.uploadSftpFile(
         file,
         sftpCurrentPath,
-        profileId,
+        activeProfile,
         (percent, loaded, total) => {
           setTransferState(prev => (prev ? { ...prev, progress: percent, loaded, total } : null));
         },
@@ -202,6 +313,31 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
   // Download file or folder with live progress tracking & cancel support
   const handleDownloadFile = async (file: SFTPFileItem) => {
     const isDir = file.type === 'directory';
+    const electron = (window as any).electronAPI;
+    const transferId = 'dl-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+
+    // Native direct file-by-file download in Electron (No ZIP, direct directory on disk)
+    if (electron?.downloadDirect && electron?.selectDownloadDirectory) {
+      const destDir = await electron.selectDownloadDirectory();
+      if (!destDir) return; // User cancelled directory selection
+
+      try {
+        await electron.downloadDirect({
+          remotePath: file.path,
+          localDestDir: destDir,
+          isDirectory: isDir,
+          transferId,
+          profileTarget: activeProfile,
+        });
+      } catch (err: any) {
+        if (err.message !== 'Transfer aborted') {
+          showToast(`Download failed: ${err.message}`, 'error');
+        }
+      }
+      return;
+    }
+
+    // Web / Browser Blob Fallback
     const downloadName = isDir ? `${file.name}.zip` : file.name;
     const abortController = new AbortController();
 
@@ -213,16 +349,26 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
       total: isDir ? 0 : file.size || 0,
       mode: 'download',
       isFolder: isDir,
+      transferId,
       abortController,
     });
 
     try {
       const blob = await api.downloadSftpWithProgress(
         file.path,
-        profileId,
+        activeProfile,
         isDir,
-        (percent, loaded, total) => {
-          setTransferState(prev => (prev ? { ...prev, progress: percent, loaded, total } : null));
+        (percent, loaded, total, details) => {
+          setTransferState(prev => (prev ? {
+            ...prev,
+            progress: percent,
+            loaded,
+            total,
+            currentFile: details?.currentFile,
+            exploredFiles: details?.exploredFiles,
+            exploredDirs: details?.exploredDirs,
+            processedFiles: details?.processedFiles,
+          } : null));
         },
         abortController.signal
       );
@@ -293,7 +439,7 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
     const folderName = window.prompt('Enter new folder name:');
     if (folderName?.trim()) {
       const fullPath = `${sftpCurrentPath === '/' ? '' : sftpCurrentPath}/${folderName.trim()}`;
-      await api.createSftpFolder(fullPath, profileId);
+      await api.createSftpFolder(fullPath, activeProfile);
       showToast(`Created folder "${folderName}"`, 'success');
       loadFiles();
     }
@@ -303,7 +449,7 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
   const handleExtractRemote = async (file: SFTPFileItem) => {
     try {
       showToast(`Extracting "${file.name}" on server...`, 'info');
-      const res = await api.remoteExtract(file.path, sftpCurrentPath, profileId);
+      const res = await api.remoteExtract(file.path, sftpCurrentPath, activeProfile);
       showToast(res.message || `Extracted "${file.name}" successfully`, 'success');
       loadFiles();
     } catch (err: any) {
@@ -317,7 +463,7 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
       const cleanName = file.name.replace(/[/\\]/g, '');
       const targetArchive = `${sftpCurrentPath === '/' ? '' : sftpCurrentPath}/${cleanName}.tar.gz`;
       showToast(`Compressing "${file.name}" to .tar.gz on server...`, 'info');
-      const res = await api.remoteCompress([file.path], targetArchive, profileId);
+      const res = await api.remoteCompress([file.path], targetArchive, activeProfile);
       showToast(res.message || `Compressed to ${cleanName}.tar.gz successfully`, 'success');
       loadFiles();
     } catch (err: any) {
@@ -348,11 +494,26 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
   return (
     <div
       onDragOver={e => {
-        e.preventDefault();
-        setIsDragOver(true);
+        const types = Array.from(e.dataTransfer.types || []);
+        // Only trigger upload overlay if dragging actual files from outside the app (not internal file rows)
+        if (types.includes('Files') && !types.includes('application/json')) {
+          e.preventDefault();
+          setIsDragOver(true);
+        }
       }}
-      onDragLeave={() => setIsDragOver(false)}
-      onDrop={handleDrop}
+      onDragLeave={e => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+          setIsDragOver(false);
+        }
+      }}
+      onDrop={e => {
+        const types = Array.from(e.dataTransfer.types || []);
+        if (types.includes('Files') && !types.includes('application/json')) {
+          handleDrop(e);
+        } else {
+          setIsDragOver(false);
+        }
+      }}
       className={`h-full w-full flex flex-col bg-[var(--theme-bg-surface,#0e1222)] border-l border-[var(--theme-border,#1e2640)] text-slate-200 relative ${
         isDragOver ? 'ring-2 ring-cyan-400 ring-inset bg-cyan-950/20' : ''
       }`}
@@ -367,14 +528,32 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
 
       {/* SFTP Top Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--theme-border,#1e2640)] bg-[var(--theme-bg-dark,#070913)]/70">
-        <div className="flex items-center gap-2">
-          <FolderTree className="w-4 h-4 text-[var(--theme-primary,#00f0ff)]" />
-          <span className="font-semibold text-xs tracking-wide text-white">SFTP Explorer</span>
-          {activeProfile && (
+        <div className="flex items-center gap-2 min-w-0">
+          <FolderTree className="w-4 h-4 text-[var(--theme-primary,#00f0ff)] flex-shrink-0" />
+          <span className="font-semibold text-xs tracking-wide text-white flex-shrink-0">SFTP</span>
+          {profiles.length > 0 ? (
+            <select
+              value={activeProfile?.id || ''}
+              onChange={e => setSelectedProfileId(e.target.value || null)}
+              className="text-[11px] bg-cyan-950/80 text-cyan-300 border border-cyan-500/30 px-1.5 py-0.5 rounded font-mono truncate max-w-[130px] outline-none cursor-pointer hover:border-cyan-400"
+              title="Target Server Profile for SFTP"
+            >
+              {activeTab?.profile && !profiles.some(p => p.id === activeTab.profile?.id) && (
+                <option value={activeTab.profile.id || ''}>
+                  {activeTab.profile.name || activeTab.title}
+                </option>
+              )}
+              {profiles.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          ) : activeProfile ? (
             <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-500/30 px-1.5 py-0.5 rounded font-mono truncate max-w-[120px]">
-              {activeProfile.name}
+              {activeProfile.name || `${activeProfile.username}@${activeProfile.host}`}
             </span>
-          )}
+          ) : null}
         </div>
 
         <div className="flex items-center gap-1">
@@ -558,6 +737,10 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
           totalBytes={transferState.total}
           mode={transferState.mode}
           isFolder={transferState.isFolder}
+          currentFile={transferState.currentFile}
+          exploredFiles={transferState.exploredFiles}
+          exploredDirs={transferState.exploredDirs}
+          processedFiles={transferState.processedFiles}
           onCancel={handleCancelTransfer}
         />
       )}
@@ -566,7 +749,7 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
       <SftpFileList
         files={filteredFiles}
         currentPath={sftpCurrentPath}
-        profileId={profileId}
+        profileTarget={activeProfile}
         onNavigate={handleNavigate}
         onRefresh={loadFiles}
         onDownload={handleDownloadFile}
@@ -593,11 +776,11 @@ export const SftpExplorer: React.FC<SftpExplorerProps> = ({ onClose }) => {
         <div className="flex items-center gap-2">
           <Download className={`w-3.5 h-3.5 ${isDownloadDragOver ? 'text-emerald-400 animate-bounce' : 'text-slate-500'}`} />
           <span className="text-[11px]">
-            {isDownloadDragOver ? 'Release to download item / folder as .ZIP' : 'Drag file or folder here to Download'}
+            {isDownloadDragOver ? 'Release to select folder & download directly' : 'Drag file or folder here to Download to Local'}
           </span>
         </div>
-        <span className="text-[10px] text-slate-500 bg-white/5 px-1.5 py-0.5 rounded">
-          Folders auto-zip
+        <span className="text-[10px] text-emerald-400/80 bg-emerald-950/40 border border-emerald-500/20 px-1.5 py-0.5 rounded font-mono">
+          Direct stream
         </span>
       </div>
 

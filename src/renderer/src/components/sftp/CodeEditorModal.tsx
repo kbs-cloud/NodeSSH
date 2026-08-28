@@ -15,7 +15,10 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({ file, onClose 
   const { showToast, profiles } = useApp();
   const { activeTab } = useTerminal();
 
-  const profileId = activeTab?.profileId || activeTab?.profile?.id || (profiles.length > 0 ? profiles[0].id : undefined);
+  const activeProfile =
+    activeTab?.profile ||
+    (activeTab?.profileId ? profiles.find(p => p.id === activeTab.profileId) : undefined) ||
+    (profiles.length > 0 ? profiles[0] : undefined);
 
   const [content, setContent] = useState<string>('');
   const [initialContent, setInitialContent] = useState<string>('');
@@ -30,7 +33,7 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({ file, onClose 
   useEffect(() => {
     if (!file) return;
     setIsLoading(true);
-    api.readSftpFile(file.path, profileId)
+    api.readSftpFile(file.path, activeProfile)
       .then(data => {
         setContent(data);
         setInitialContent(data);
@@ -40,13 +43,13 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({ file, onClose 
         setContent('# Error loading remote file');
         setIsLoading(false);
       });
-  }, [file, profileId]);
+  }, [file, activeProfile]);
 
   const handleSave = async () => {
     if (!file) return;
     setIsSaving(true);
     try {
-      await api.writeSftpFile(file.path, content, profileId);
+      await api.writeSftpFile(file.path, content, activeProfile);
       setInitialContent(content);
       showToast(`Saved ${file.name} to server`, 'success');
     } catch {

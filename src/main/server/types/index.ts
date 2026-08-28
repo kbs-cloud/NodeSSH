@@ -230,9 +230,37 @@ export interface SFTPTransferAbortRequest {
   transferId: string;
 }
 
+export interface SFTPFolderProgressInfo {
+  phase: 'exploring' | 'transferring' | 'completed' | 'aborted';
+  currentFile?: string;
+  exploredFiles: number;
+  exploredDirs: number;
+  processedFiles: number;
+  processedBytes: number;
+  totalDiscoveredBytes: number;
+  percent: number;
+}
+
 export interface SFTPStreamZipOptions {
   signal?: AbortSignal;
-  onProgress?: (file: string, bytes: number) => void;
+  onProgress?: (progress: SFTPFolderProgressInfo) => void;
+}
+
+export interface SFTPTransferStatusDTO {
+  transferId: string;
+  type: 'download' | 'upload';
+  isFolder: boolean;
+  path: string;
+  filename: string;
+  startTime: number;
+  status: 'active' | 'completed' | 'aborted' | 'error';
+  currentFile?: string;
+  exploredFiles: number;
+  exploredDirs: number;
+  processedFiles: number;
+  processedBytes: number;
+  totalBytes: number;
+  percent: number;
 }
 
 export interface SFTPCommandResult {

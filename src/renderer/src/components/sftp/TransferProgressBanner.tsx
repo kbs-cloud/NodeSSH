@@ -8,6 +8,10 @@ export interface TransferProgressBannerProps {
   totalBytes?: number;
   mode: 'upload' | 'download';
   isFolder?: boolean;
+  currentFile?: string;
+  exploredFiles?: number;
+  exploredDirs?: number;
+  processedFiles?: number;
   onCancel: () => void;
 }
 
@@ -18,6 +22,10 @@ export const TransferProgressBanner: React.FC<TransferProgressBannerProps> = ({
   totalBytes,
   mode,
   isFolder,
+  currentFile,
+  exploredFiles,
+  exploredDirs,
+  processedFiles,
   onCancel,
 }) => {
   const formatBytes = (bytes: number): string => {
@@ -32,10 +40,17 @@ export const TransferProgressBanner: React.FC<TransferProgressBannerProps> = ({
 
   const getByteText = (): string => {
     if (isFolder && mode === 'download') {
-      if (transferredBytes && transferredBytes > 0) {
-        return `Streaming .ZIP archive... (${formatBytes(transferredBytes)})`;
+      const fileCountText = exploredFiles ? ` (${processedFiles || 0}/${exploredFiles} files)` : '';
+      if (totalBytes && totalBytes > 0 && transferredBytes !== undefined) {
+        return `${formatBytes(transferredBytes)} / ${formatBytes(totalBytes)}${fileCountText}`;
       }
-      return 'Streaming .ZIP archive...';
+      if (transferredBytes && transferredBytes > 0) {
+        return `${formatBytes(transferredBytes)} streamed${fileCountText}`;
+      }
+      if (exploredFiles) {
+        return `${processedFiles || 0}/${exploredFiles} files explored`;
+      }
+      return 'Exploring and streaming files...';
     }
 
     if (totalBytes && totalBytes > 0 && transferredBytes !== undefined) {
@@ -71,6 +86,11 @@ export const TransferProgressBanner: React.FC<TransferProgressBannerProps> = ({
           <span className="truncate font-mono text-[11px] text-cyan-200 font-medium" title={fileName}>
             {getTitle()}
           </span>
+          {currentFile && (
+            <span className="text-[10px] font-mono text-slate-400 truncate max-w-[180px] hidden sm:inline" title={currentFile}>
+              ({currentFile})
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -101,7 +121,11 @@ export const TransferProgressBanner: React.FC<TransferProgressBannerProps> = ({
         <span>{getByteText()}</span>
         <span className="flex items-center gap-1 text-slate-500">
           <Loader2 className="w-2.5 h-2.5 animate-spin text-cyan-400" />
-          {mode === 'upload' ? 'Sending chunks' : 'Receiving chunks'}
+          {mode === 'upload'
+            ? 'Sending chunks'
+            : isFolder
+            ? (currentFile ? `Copying ${currentFile}` : 'Streaming files')
+            : 'Receiving chunks'}
         </span>
       </div>
     </div>

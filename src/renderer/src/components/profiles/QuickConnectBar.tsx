@@ -19,7 +19,7 @@ export const QuickConnectBar: React.FC = () => {
     if (!raw) return;
 
     // Parse username@host:port or host:port or host
-    let username = 'ubuntu';
+    let username = 'root';
     let host = raw;
     let port = 22;
 

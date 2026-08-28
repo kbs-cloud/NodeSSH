@@ -4,7 +4,9 @@ import { v4 as uuidv4 } from 'uuid';
 
 export function createProfile(userId: string, data: ProfileCreateDTO): Profile {
   const db = getDb();
-  const id = uuidv4();
+  const id = (data as any).id && typeof (data as any).id === 'string' && (data as any).id.trim()
+    ? (data as any).id.trim()
+    : uuidv4();
   const now = new Date().toISOString();
 
   let tagsStr: string | null = null;
@@ -66,12 +68,17 @@ export function getProfilesByUserId(userId: string): Profile[] {
 }
 
 export function getProfileById(userId: string, profileId: string): Profile | null {
+  if (!profileId) return null;
   const db = getDb();
   const stmt = db.prepare('SELECT * FROM profiles WHERE id = ? AND user_id = ?');
   let profile = stmt.get(profileId, userId) as Profile | undefined;
   if (!profile) {
     const fallbackStmt = db.prepare('SELECT * FROM profiles WHERE id = ?');
     profile = fallbackStmt.get(profileId) as Profile | undefined;
+  }
+  if (!profile) {
+    const nameStmt = db.prepare('SELECT * FROM profiles WHERE user_id = ? AND LOWER(name) = LOWER(?) LIMIT 1');
+    profile = nameStmt.get(userId, profileId) as Profile | undefined;
   }
   return profile || null;
 }

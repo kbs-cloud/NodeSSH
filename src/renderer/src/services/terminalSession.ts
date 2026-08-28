@@ -35,7 +35,7 @@ export class TerminalSession {
   public tabId: string;
   public profile?: Partial<ServerProfile>;
   public status: TerminalSessionStatus = 'connecting';
-  public cwd: string = '/home/ubuntu';
+  public cwd: string = '~';
   public latencyMs: number = 0;
 
   private ws: WebSocket | null = null;

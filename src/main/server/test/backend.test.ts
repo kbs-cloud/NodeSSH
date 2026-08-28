@@ -1,6 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
 import path from 'path';
+import fs from 'fs';
 
 import { encryptPrivateKey, decryptPrivateKey } from '../security/vault';
 import { generateEd25519Key, generateRSAKey, calculateFingerprint } from '../security/keygen';
@@ -23,6 +24,8 @@ import {
   sftpStreamDirectoryAsZip,
   sftpRemoteExtract,
   sftpRemoteCompress,
+  sftpDownloadFileDirect,
+  sftpDownloadDirectoryDirect,
 } from '../ssh/sftp-service';
 
 describe('NodeSSH Backend Test Suite', () => {
@@ -358,12 +361,6 @@ AWS-Database=#109#0%db.internal.net%22%dbadmin%%-1%-1%%%22%%0%0%0%%-1%-1
       assert.ok(res.data.nodeVersion);
       assert.ok(res.data.memory.total > 0);
     });
-
-    it('GET /api/auth/sso/config returns KBS SSO credentials configuration', async () => {
-      const res = await apiRequest('/api/auth/sso/config');
-      assert.strictEqual(res.status, 200);
-      assert.strictEqual(res.data.clientId, 'nodessh');
-    });
   });
 
   describe('6. WebSocket Native Local Terminal PTY', () => {
@@ -462,11 +459,35 @@ AWS-Database=#109#0%db.internal.net%22%dbadmin%%-1%-1%%%22%%0%0%0%%-1%-1
       let aborted = false;
       const testTransferId = 'test-transfer-abort-123';
       activeTransfers.set(testTransferId, {
-        abort: () => { aborted = true; },
+        transferId: testTransferId,
+        type: 'download',
+        isFolder: true,
+        path: '/var/log',
+        filename: 'log.zip',
         startTime: Date.now(),
+        status: 'active',
+        currentFile: 'syslog',
+        exploredFiles: 10,
+        exploredDirs: 2,
+        processedFiles: 5,
+        processedBytes: 5000,
+        totalBytes: 10000,
+        percent: 50,
+        abort: () => { aborted = true; },
       });
 
       assert.ok(activeTransfers.has(testTransferId));
+
+      // Test status endpoint
+      const statusRes = await apiRequest(`/api/sftp/transfer/status?transferId=${testTransferId}`, {
+        token: sharedAuthToken,
+      });
+      assert.strictEqual(statusRes.status, 200);
+      assert.strictEqual(statusRes.data.transferId, testTransferId);
+      assert.strictEqual(statusRes.data.isFolder, true);
+      assert.strictEqual(statusRes.data.currentFile, 'syslog');
+      assert.strictEqual(statusRes.data.exploredFiles, 10);
+      assert.strictEqual(statusRes.data.percent, 50);
 
       const res = await apiRequest('/api/sftp/transfer/abort', {
         method: 'POST',
@@ -487,6 +508,64 @@ AWS-Database=#109#0%db.internal.net%22%dbadmin%%-1%-1%%%22%%0%0%0%%-1%-1
         body: { transferId: 'non-existent-transfer' },
       });
       assert.strictEqual(res.status, 404);
+    });
+
+    it('sftpStreamDirectoryAsZip calculates dynamic progress based on explored folders and files', async () => {
+      const progressEvents: any[] = [];
+      const mockSFTP: any = {
+        readdir: (dirPath: string, cb: any) => {
+          if (dirPath === '/sample') {
+            cb(null, [
+              {
+                filename: 'file1.txt',
+                longname: '-rw-r--r-- file1.txt',
+                attrs: { mode: 0o100644, size: 100, mtime: 123456, atime: 123456, uid: 1000, gid: 1000 },
+              },
+              {
+                filename: 'subdir',
+                longname: 'drwxr-xr-x subdir',
+                attrs: { mode: 0o040755, size: 4096, mtime: 123456, atime: 123456, uid: 1000, gid: 1000 },
+              },
+            ]);
+          } else if (dirPath === '/sample/subdir') {
+            cb(null, [
+              {
+                filename: 'file2.txt',
+                longname: '-rw-r--r-- file2.txt',
+                attrs: { mode: 0o100644, size: 200, mtime: 123456, atime: 123456, uid: 1000, gid: 1000 },
+              },
+            ]);
+          } else {
+            cb(null, []);
+          }
+        },
+        createReadStream: (_path: string) => {
+          const { Readable } = require('stream');
+          const stream = new Readable({
+            read() {
+              this.push(Buffer.from('hello world content'));
+              this.push(null);
+            }
+          });
+          return stream;
+        },
+      };
+
+      const { PassThrough } = await import('stream');
+      const outStream = new PassThrough();
+
+      await sftpStreamDirectoryAsZip(mockSFTP, '/sample', outStream, {
+        onProgress: (prog) => {
+          progressEvents.push(prog);
+        },
+      });
+
+      assert.ok(progressEvents.length > 0);
+      const lastEvent = progressEvents[progressEvents.length - 1];
+      assert.strictEqual(lastEvent.phase, 'completed');
+      assert.strictEqual(lastEvent.percent, 100);
+      assert.strictEqual(lastEvent.exploredFiles, 2);
+      assert.strictEqual(lastEvent.exploredDirs, 2);
     });
 
     it('sftpStreamDirectoryAsZip respects AbortSignal immediately', async () => {
@@ -555,6 +634,140 @@ AWS-Database=#109#0%db.internal.net%22%dbadmin%%-1%-1%%%22%%0%0%0%%-1%-1
 
       await sftpRemoteCompress(mockSSHConn, ['/var/log/nginx', '/var/log/syslog'], '/backups/logs.tar.gz');
       assert.ok(executedCommands[0].includes('tar -czf "/backups/logs.tar.gz" "/var/log/nginx" "/var/log/syslog"'));
+    });
+
+    it('createProfile preserves custom client ID and getProfileById supports name fallback', () => {
+      const customId = 'prof-custom-' + Date.now();
+      const prof = createProfile(testUserId, {
+        id: customId,
+        name: 'Custom Test Server',
+        host: '192.168.1.50',
+        port: 22,
+        username: 'admin',
+        auth_type: 'password',
+      } as any);
+
+      assert.strictEqual(prof.id, customId);
+      const byId = getProfileById(testUserId, customId);
+      assert.ok(byId);
+      assert.strictEqual(byId?.host, '192.168.1.50');
+
+      // Test name fallback
+      const byName = getProfileById(testUserId, 'custom test server');
+      assert.ok(byName);
+      assert.strictEqual(byName?.id, customId);
+    });
+
+    it('GET /api/sftp/list accepts direct connection parameters without requiring saved profile ID', async () => {
+      const res = await apiRequest('/api/sftp/list?host=127.0.0.1&port=2222&username=tester&password=pwd', {
+        token: sharedAuthToken,
+      });
+      // Will fail to connect to 127.0.0.1:2222 (connection refused or timeout), but should NOT fail with "No SSH profile available"
+      assert.strictEqual(res.status, 500);
+      assert.ok(!res.data.error?.includes('No SSH profile available'));
+      assert.ok(
+        res.data.error?.includes('ECONNREFUSED') ||
+        res.data.error?.includes('connect') ||
+        res.data.error?.includes('timed out') ||
+        res.data.error?.includes('All configured authentication methods failed')
+      );
+    });
+
+    it('sftpDownloadFileDirect streams single file directly to disk without compression', async () => {
+      const fs = await import('fs');
+      const os = await import('os');
+      const testDir = path.join(os.tmpdir(), `nodessh-test-${Date.now()}`);
+      fs.mkdirSync(testDir, { recursive: true });
+      const targetPath = path.join(testDir, 'downloaded.txt');
+
+      const mockSFTP: any = {
+        createReadStream: (_p: string) => {
+          const { Readable } = require('stream');
+          return new Readable({
+            read() {
+              this.push(Buffer.from('direct content 12345'));
+              this.push(null);
+            }
+          });
+        }
+      };
+
+      await sftpDownloadFileDirect(mockSFTP, '/remote/file.txt', targetPath);
+      assert.ok(fs.existsSync(targetPath));
+      assert.strictEqual(fs.readFileSync(targetPath, 'utf8'), 'direct content 12345');
+
+      // Cleanup
+      fs.rmSync(testDir, { recursive: true, force: true });
+    });
+
+    it('sftpDownloadDirectoryDirect downloads folder structure directly and keeps completed files on abort', async () => {
+      const fs = await import('fs');
+      const os = await import('os');
+      const testDir = path.join(os.tmpdir(), `nodessh-dir-test-${Date.now()}`);
+      fs.mkdirSync(testDir, { recursive: true });
+
+      const abortController = new AbortController();
+
+      let filesRead = 0;
+      const mockSFTP: any = {
+        readdir: (dirPath: string, cb: any) => {
+          if (dirPath === '/remote/dir') {
+            cb(null, [
+              {
+                filename: 'first.txt',
+                longname: '-rw-r--r-- first.txt',
+                attrs: { mode: 0o100644, size: 100, mtime: 123, atime: 123, uid: 1000, gid: 1000 },
+              },
+              {
+                filename: 'second.txt',
+                longname: '-rw-r--r-- second.txt',
+                attrs: { mode: 0o100644, size: 200, mtime: 123, atime: 123, uid: 1000, gid: 1000 },
+              },
+            ]);
+          } else {
+            cb(null, []);
+          }
+        },
+        createReadStream: (p: string) => {
+          filesRead++;
+          const { Readable } = require('stream');
+          if (p.includes('first.txt')) {
+            return new Readable({
+              read() {
+                this.push(Buffer.from('first completed file'));
+                this.push(null);
+              }
+            });
+          }
+          // For second.txt, trigger abort mid-stream!
+          return new Readable({
+            read() {
+              this.push(Buffer.from('second partial data...'));
+              setTimeout(() => {
+                abortController.abort();
+              }, 10);
+            }
+          });
+        }
+      };
+
+      await assert.rejects(async () => {
+        await sftpDownloadDirectoryDirect(mockSFTP, '/remote/dir', testDir, {
+          signal: abortController.signal,
+        });
+      }, /Transfer aborted/);
+
+      // Verify that the first successfully downloaded file remains on disk!
+      const firstPath = path.join(testDir, 'first.txt');
+      assert.ok(fs.existsSync(firstPath), 'Completed first file must remain on disk');
+      assert.strictEqual(fs.readFileSync(firstPath, 'utf8'), 'first completed file');
+
+      // Verify that the in-flight aborted second file was deleted and did NOT leave corrupt data!
+      const secondPath = path.join(testDir, 'second.txt');
+      assert.ok(!fs.existsSync(secondPath), 'In-flight aborted file must be deleted');
+
+      // Cleanup
+      fs.rmSync(testDir, { recursive: true, force: true });
     });
   });
 
