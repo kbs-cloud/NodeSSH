@@ -25,7 +25,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   sftpPosition: 'right',
   defaultCloseOnExit: true,
   defaultKeepalive: 30,
-  lanIp: '192.168.1.100',
+  lanIp: '',
   copyOnSelect: true,
   rightClickPaste: true,
   confirmMultiLinePaste: true,
@@ -100,7 +100,11 @@ class StorageService {
       return DEFAULT_SETTINGS;
     }
     try {
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
+      const parsed = { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
+      if (parsed.lanIp === '192.168.1.100') {
+        parsed.lanIp = '';
+      }
+      return parsed;
     } catch {
       return DEFAULT_SETTINGS;
     }

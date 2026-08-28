@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from '../common/Modal';
-import { Settings, Check, Palette, Terminal, FolderTree, RefreshCw } from 'lucide-react';
+import { Settings, Check, Palette, Terminal, FolderTree, RefreshCw, Wifi } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { useTheme } from '../../context/ThemeContext';
 import { AppTheme } from '../../types';
@@ -17,6 +17,7 @@ export const SettingsModal: React.FC = () => {
   const [sftpPosition, setSftpPosition] = useState<'left' | 'right' | 'sidebar'>(settings.sftpPosition || 'right');
   const [defaultCloseOnExit, setDefaultCloseOnExit] = useState<boolean>(settings.defaultCloseOnExit ?? true);
   const [defaultKeepalive, setDefaultKeepalive] = useState<number>(settings.defaultKeepalive || 30);
+  const [customLanIp, setCustomLanIp] = useState<string>(settings.lanIp || '');
   const [copyOnSelect, setCopyOnSelect] = useState<boolean>(settings.copyOnSelect ?? true);
   const [rightClickPaste, setRightClickPaste] = useState<boolean>(settings.rightClickPaste ?? true);
   const [confirmMultiLinePaste, setConfirmMultiLinePaste] = useState<boolean>(settings.confirmMultiLinePaste ?? true);
@@ -31,6 +32,7 @@ export const SettingsModal: React.FC = () => {
       setSftpPosition(settings.sftpPosition || 'right');
       setDefaultCloseOnExit(settings.defaultCloseOnExit ?? true);
       setDefaultKeepalive(settings.defaultKeepalive || 30);
+      setCustomLanIp(settings.lanIp || '');
       setCopyOnSelect(settings.copyOnSelect ?? true);
       setRightClickPaste(settings.rightClickPaste ?? true);
       setConfirmMultiLinePaste(settings.confirmMultiLinePaste ?? true);
@@ -49,6 +51,7 @@ export const SettingsModal: React.FC = () => {
       sftpPosition,
       defaultCloseOnExit,
       defaultKeepalive,
+      lanIp: customLanIp.trim(),
       copyOnSelect,
       rightClickPaste,
       confirmMultiLinePaste,
@@ -245,6 +248,35 @@ export const SettingsModal: React.FC = () => {
               Always kill remote SSH background process when closing tab
             </span>
           </label>
+        </div>
+
+        {/* Local Network / LAN IP Configuration */}
+        <div className="p-3.5 bg-[#0e1222] border border-white/5 rounded-xl space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-1.5 text-slate-300 font-semibold">
+              <Wifi className="w-4 h-4 text-cyan-400" />
+              <span>Local Machine Network & IP</span>
+            </label>
+            <span className="text-[11px] text-slate-400 font-mono">
+              Active LAN IP: <strong className="text-cyan-400 font-semibold">{lanIp}</strong>
+            </span>
+          </div>
+
+          <div>
+            <label className="block text-slate-400 text-[11px] mb-1">
+              Custom LAN IP Override (leave blank for automatic adapter detection)
+            </label>
+            <input
+              type="text"
+              placeholder={`Auto-detected: ${lanIp}`}
+              value={customLanIp}
+              onChange={e => setCustomLanIp(e.target.value)}
+              className="w-full bg-[#070913] border border-white/10 rounded-lg px-3 py-1.5 text-white outline-none font-mono"
+            />
+            <p className="text-[11px] text-slate-400 mt-1">
+              Used when binding SSH tunnels to <code className="text-cyan-400">0.0.0.0</code> and generating quick-connect LAN commands.
+            </p>
+          </div>
         </div>
 
         {/* Action Buttons */}

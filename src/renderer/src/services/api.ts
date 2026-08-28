@@ -74,14 +74,25 @@ class ApiClient {
       // Fallback
     }
 
-    // Attempt WebRTC local IP detection or fallback
+    const customIp = storage.getSettings().lanIp;
+    if (customIp && customIp !== '192.168.1.100') {
+      return customIp;
+    }
+
+    return '127.0.0.1';
+  }
+
+  // Get full network info including detected LAN IP and all interfaces
+  async getNetworkInfo(): Promise<{ ip: string; interfaces: any[] }> {
     try {
-      if (typeof window !== 'undefined' && (window as any).RTCPeerConnection) {
-        // Simple fallback
+      const res = await fetch(`${this.baseUrl}/system/network-info`, {
+        headers: this.getHeaders(),
+      });
+      if (res.ok) {
+        return await res.json();
       }
     } catch {}
-
-    return storage.getSettings().lanIp || '192.168.1.100';
+    return { ip: '127.0.0.1', interfaces: [] };
   }
 
   // --- Auth ---

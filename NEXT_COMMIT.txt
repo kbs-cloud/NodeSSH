@@ -1,7 +1,11 @@
-feat(ui): add resizable dock windows, split panes and left-aligned file actions
+fix(network): dynamically detect local machine LAN IP
 
-- Add interactive draggable resize divider handles to SFTP dock panel (left/right) with localStorage persistence
-- Add draggable resize dividers to vertical and horizontal split terminal panes with double-click reset
-- Reposition SFTP file and folder action buttons to the left column for instant access without horizontal scrolling
-- Support per-tab SFTP directory state and auto-synchronization with active terminal cwd
-- Improve terminal cwd detection from shell prompts and OSC escape sequences
+Resolve an issue where the status bar, launcher badge, and SSH tunnel
+helpers displayed a hardcoded placeholder IP (192.168.1.100) instead of
+the machine's actual local network IP.
+
+- Add prioritized LAN IP detection in system routes using os.networkInterfaces()
+- Implement GET /api/system/network-info endpoint returning primary IP and adapters
+- Update ApiClient getLanIp() and add getNetworkInfo() helper
+- Update AppContext and StorageService to eliminate hardcoded 192.168.1.100
+- Add Local Machine Network & IP configuration section to Settings modal

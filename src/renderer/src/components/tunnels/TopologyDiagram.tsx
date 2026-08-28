@@ -7,7 +7,7 @@ interface TopologyDiagramProps {
   lanIp?: string;
 }
 
-export const TopologyDiagram: React.FC<TopologyDiagramProps> = ({ tunnel, lanIp = '192.168.1.100' }) => {
+export const TopologyDiagram: React.FC<TopologyDiagramProps> = ({ tunnel, lanIp = '127.0.0.1' }) => {
   const isLanBind = tunnel.bindHost === '0.0.0.0';
   const isActive = tunnel.status === 'active';
   const isDirect = tunnel.type === 'direct';

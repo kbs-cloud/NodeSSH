@@ -121,7 +121,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [tunnels, setTunnels] = useState<SSHTunnel[]>([]);
   const [snippets, setSnippets] = useState<Snippet[]>([]);
   const [settings, setSettings] = useState<AppSettings>(() => storage.getSettings());
-  const [lanIp, setLanIp] = useState<string>('192.168.1.100');
+  const [lanIp, setLanIp] = useState<string>(() => storage.getSettings().lanIp || '127.0.0.1');
 
   // Modals
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -364,6 +364,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateSettings = (newSettings: Partial<AppSettings>) => {
     const updated = { ...settings, ...newSettings };
     setSettings(updated);
+    if (newSettings.lanIp !== undefined) {
+      if (newSettings.lanIp) {
+        setLanIp(newSettings.lanIp);
+      } else {
+        api.getLanIp().then(ip => setLanIp(ip));
+      }
+    }
     storage.saveSettings(updated);
     showToast('Settings saved', 'success');
   };
