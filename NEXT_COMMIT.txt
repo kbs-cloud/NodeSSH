@@ -1,15 +1,9 @@
-feat(files): add split-window File Mode and cross-session transfers
+feat(files): require manual session selection in File Manager
 
-Introduce a dedicated multi-pane File Mode in the left sidebar
-supporting standalone direct SFTP sessions, local filesystem browsing,
-and cross-session transfers with completion guards.
+Do not automatically connect to SFTP profiles on File Manager mount
+or when adding new split panes; show an interactive session chooser hub.
 
-- Add File Mode navigation view to sidebar and main layout
-- Implement FileManagerView with 1, 2, 3, and 4-pane split layouts
-- Add local filesystem REST API (/api/local-files/drives, list, read, write)
-- Support standalone direct SFTP sessions without opening terminal shells
-- Implement cross-session transfers (SFTP <-> SFTP, Local <-> SFTP, Local <-> Local)
-- Add completion guards ensuring finished files and directories persist on abort
-- Implement recursive parent directory pre-creation on file streams
-- Add TransferQueueDrawer for real-time progress tracking and cancellation
-- Auto-refresh destination and source directory panes on completion/cancel
+- Set initial secondary panes and newly added panes to 'unassigned'
+- Render interactive Session Selector Hub inside unassigned panes
+- Support choosing Local Disk, Active Terminal Tabs, Saved SFTP, or Ad-Hoc
+- Conditionally hide path toolbar until a session is selected

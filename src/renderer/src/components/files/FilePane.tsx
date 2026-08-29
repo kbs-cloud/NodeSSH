@@ -1,4 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import {
+  FolderTree,
+  Monitor,
+  Terminal,
+  Server,
+  Plus,
+} from 'lucide-react';
 import { SFTPFileItem, FilePaneConfig, LocalDriveInfo, QuickLocation, ServerProfile, TerminalTab } from '../../types';
 import { api } from '../../services/api';
 import { useApp } from '../../context/AppContext';
@@ -38,6 +45,11 @@ export const FilePane: React.FC<FilePaneProps> = ({
 
   // Load files based on session type
   const loadFiles = useCallback(async (targetPath?: string | any) => {
+    if (pane.sessionType === 'unassigned') {
+      setFiles([]);
+      return;
+    }
+
     const pathToQuery = typeof targetPath === 'string' ? targetPath : pane.currentPath;
     setIsLoading(true);
     try {
@@ -64,7 +76,9 @@ export const FilePane: React.FC<FilePaneProps> = ({
   }, [pane.id, pane.sessionType, pane.currentPath, pane.profile, onUpdatePane, showToast]);
 
   useEffect(() => {
-    loadFiles();
+    if (pane.sessionType !== 'unassigned') {
+      loadFiles();
+    }
   }, [pane.sessionType, pane.profileId, pane.currentPath, pane.terminalTabId, pane.refreshKey]);
 
   const handleNavigate = (newPath: string) => {
@@ -170,21 +184,130 @@ export const FilePane: React.FC<FilePaneProps> = ({
         onQuickTransferTo={handleQuickTransferTo}
       />
 
-      {/* File List */}
-      <FilePaneList
-        pane={pane}
-        panes={panes}
-        files={files}
-        isLoading={isLoading}
-        isCreatingFolder={isCreatingFolder}
-        onCancelCreateFolder={() => setIsCreatingFolder(false)}
-        onCommitCreateFolder={handleCommitCreateFolder}
-        onNavigate={handleNavigate}
-        onRefresh={() => loadFiles()}
-        onDeleteFile={handleDeleteFile}
-        onRenameFile={handleRenameFile}
-        onInitiateTransfer={onInitiateTransfer}
-      />
+      {/* Pane Content: Session Chooser or File List */}
+      {pane.sessionType === 'unassigned' ? (
+        <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center justify-center bg-[var(--theme-bg-surface,#0e1222)]">
+          <div className="max-w-md w-full space-y-4">
+            <div className="text-center space-y-1">
+              <div className="inline-flex p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 mb-1">
+                <FolderTree className="w-6 h-6" />
+              </div>
+              <h3 className="text-sm font-semibold text-slate-100">Select File Session</h3>
+              <p className="text-xs text-slate-400">Choose an existing session or start a new connection for this pane</p>
+            </div>
+
+            <div className="space-y-2 pt-2">
+              {/* Local Filesystem */}
+              <button
+                onClick={() => onUpdatePane(pane.id, {
+                  sessionType: 'local',
+                  title: 'Local Filesystem',
+                  currentPath: '',
+                })}
+                className="w-full p-3 rounded-lg border border-slate-700/60 hover:border-emerald-500/50 bg-slate-900/50 hover:bg-emerald-950/20 text-left transition-all group flex items-center gap-3"
+              >
+                <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 group-hover:scale-105 transition-transform">
+                  <Monitor className="w-5 h-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold text-slate-200 group-hover:text-emerald-300">Local Filesystem</div>
+                  <div className="text-[11px] text-slate-400 truncate">Browse local drives, downloads, and files on this PC</div>
+                </div>
+              </button>
+
+              {/* Active Terminal Tabs */}
+              {terminalTabs.length > 0 && (
+                <div className="space-y-1 pt-1">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1">Active SSH Terminal Tabs</div>
+                  {terminalTabs.map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => onUpdatePane(pane.id, {
+                        sessionType: 'terminal',
+                        title: `Tab: ${tab.title}`,
+                        profileId: tab.profileId,
+                        profile: tab.profile,
+                        terminalTabId: tab.id,
+                        currentPath: tab.cwd || tab.sftpPath || '/',
+                      })}
+                      className="w-full p-2.5 rounded-lg border border-slate-700/60 hover:border-purple-500/50 bg-slate-900/50 hover:bg-purple-950/20 text-left transition-all group flex items-center gap-3"
+                    >
+                      <div className="p-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-400">
+                        <Terminal className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-medium text-slate-200 group-hover:text-purple-300 truncate">{tab.title}</div>
+                        <div className="text-[10px] text-slate-400 font-mono truncate">{tab.profile?.host || 'Local Shell'}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Saved Server Profiles */}
+              {profiles.length > 0 && (
+                <div className="space-y-1 pt-1">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1">Saved SFTP Server Profiles</div>
+                  <div className="max-h-44 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                    {profiles.map((prof) => (
+                      <button
+                        key={prof.id}
+                        onClick={() => onUpdatePane(pane.id, {
+                          sessionType: 'sftp',
+                          title: prof.name,
+                          profileId: prof.id,
+                          profile: prof,
+                          terminalTabId: undefined,
+                          currentPath: prof.defaultPath || '/',
+                        })}
+                        className="w-full p-2.5 rounded-lg border border-slate-700/60 hover:border-cyan-500/50 bg-slate-900/50 hover:bg-cyan-950/20 text-left transition-all group flex items-center gap-3"
+                      >
+                        <div className="p-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
+                          <Server className="w-4 h-4" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-medium text-slate-200 group-hover:text-cyan-300 truncate">{prof.name}</div>
+                          <div className="text-[10px] text-slate-400 font-mono truncate">{prof.username}@{prof.host}:{prof.port}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Connect Standalone SFTP */}
+              <button
+                onClick={onOpenDirectConnect}
+                className="w-full p-3 rounded-lg border border-dashed border-cyan-500/30 hover:border-cyan-400/60 bg-cyan-500/5 hover:bg-cyan-500/10 text-left transition-all group flex items-center gap-3"
+              >
+                <div className="p-2 rounded-lg bg-cyan-500/20 text-cyan-300 group-hover:scale-105 transition-transform">
+                  <Plus className="w-5 h-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold text-cyan-300">+ Connect Standalone SFTP</div>
+                  <div className="text-[11px] text-slate-400 truncate">Connect directly to a new remote server without a terminal</div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* File List */
+        <FilePaneList
+          pane={pane}
+          panes={panes}
+          files={files}
+          isLoading={isLoading}
+          isCreatingFolder={isCreatingFolder}
+          onCancelCreateFolder={() => setIsCreatingFolder(false)}
+          onCommitCreateFolder={handleCommitCreateFolder}
+          onNavigate={handleNavigate}
+          onRefresh={() => loadFiles()}
+          onDeleteFile={handleDeleteFile}
+          onRenameFile={handleRenameFile}
+          onInitiateTransfer={onInitiateTransfer}
+        />
+      )}
     </div>
   );
 };

@@ -136,7 +136,7 @@ export interface SFTPFileItem {
   group?: string;
 }
 
-export type FileSessionType = 'local' | 'sftp' | 'terminal';
+export type FileSessionType = 'local' | 'sftp' | 'terminal' | 'unassigned';
 
 export interface LocalDriveInfo {
   name: string;

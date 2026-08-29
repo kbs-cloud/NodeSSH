@@ -45,7 +45,7 @@ export const FileManagerView: React.FC = () => {
 
   // Split Panes State
   const [panes, setPanes] = useState<FilePaneConfig[]>(() => {
-    // Initial 2 panes: Left is Local, Right is first Profile (or Local if no profiles)
+    // Initial 2 panes: Left is Local, Right is Unassigned (choose an existing session or start a new one)
     const initialLocal: FilePaneConfig = {
       id: 'pane-local-' + Date.now(),
       sessionType: 'local',
@@ -60,11 +60,9 @@ export const FileManagerView: React.FC = () => {
 
     const initialRemote: FilePaneConfig = {
       id: 'pane-sftp-' + (Date.now() + 1),
-      sessionType: profiles.length > 0 ? 'sftp' : 'local',
-      title: profiles.length > 0 ? profiles[0].name : 'Local Explorer',
-      profileId: profiles.length > 0 ? profiles[0].id : undefined,
-      profile: profiles.length > 0 ? profiles[0] : undefined,
-      currentPath: profiles.length > 0 ? (profiles[0].defaultPath || '/') : '',
+      sessionType: 'unassigned',
+      title: 'Select Session',
+      currentPath: '',
       history: [],
       historyIndex: 0,
       searchFilter: '',
@@ -104,9 +102,9 @@ export const FileManagerView: React.FC = () => {
     const newPaneId = 'pane-' + Date.now();
     const newPane: FilePaneConfig = {
       id: newPaneId,
-      sessionType: 'local',
-      title: `Explorer ${panes.length + 1}`,
-      currentPath: homeDir || '',
+      sessionType: 'unassigned',
+      title: 'Select Session',
+      currentPath: '',
       history: [],
       historyIndex: 0,
       searchFilter: '',

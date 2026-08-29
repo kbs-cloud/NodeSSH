@@ -137,11 +137,13 @@ export const FilePaneHeader: React.FC<FilePaneHeaderProps> = ({
             {pane.sessionType === 'local' ? (
               <Monitor className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
             ) : pane.sessionType === 'terminal' ? (
-              <Terminal className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
-            ) : (
+              <Terminal className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
+            ) : pane.sessionType === 'sftp' ? (
               <FolderTree className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
+            ) : (
+              <Plus className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
             )}
-            <span className="truncate font-semibold text-[11px]">{pane.title}</span>
+            <span className="truncate font-semibold text-[11px]">{pane.title || 'Select Session'}</span>
             <ChevronDown className="w-3 h-3 text-slate-400 flex-shrink-0" />
           </button>
 
@@ -152,10 +154,12 @@ export const FilePaneHeader: React.FC<FilePaneHeaderProps> = ({
                 ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30'
                 : pane.sessionType === 'terminal'
                 ? 'bg-purple-500/10 text-purple-300 border border-purple-500/30'
-                : 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30'
+                : pane.sessionType === 'sftp'
+                ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30'
+                : 'bg-slate-800 text-slate-400 border border-slate-700'
             }`}
           >
-            {pane.sessionType === 'local' ? 'Local Disk' : pane.sessionType === 'terminal' ? 'SSH Shell' : 'SFTP Session'}
+            {pane.sessionType === 'local' ? 'Local Disk' : pane.sessionType === 'terminal' ? 'SSH Shell' : pane.sessionType === 'sftp' ? 'SFTP Session' : 'No Session'}
           </span>
 
           {/* Session Selection Dropdown Menu */}
@@ -347,15 +351,16 @@ export const FilePaneHeader: React.FC<FilePaneHeaderProps> = ({
       </div>
 
       {/* Path Bar & Directory Action Bar */}
-      <div className="flex items-center gap-1 px-2 py-1 bg-[#12172b] border-t border-[var(--theme-border,#1e2640)]/70 text-xs">
-        {/* Go Up button */}
-        <button
-          onClick={handleGoUp}
-          className="p-1 rounded text-slate-400 hover:text-white hover:bg-white/10 transition-colors flex-shrink-0"
-          title="Go Up One Directory"
-        >
-          <ArrowUp className="w-3.5 h-3.5" />
-        </button>
+      {pane.sessionType !== 'unassigned' && (
+        <div className="flex items-center gap-1 px-2 py-1 bg-[#12172b] border-t border-[var(--theme-border,#1e2640)]/70 text-xs">
+          {/* Go Up button */}
+          <button
+            onClick={handleGoUp}
+            className="p-1 rounded text-slate-400 hover:text-white hover:bg-white/10 transition-colors flex-shrink-0"
+            title="Go Up One Directory"
+          >
+            <ArrowUp className="w-3.5 h-3.5" />
+          </button>
 
         {/* Drives / Quick Locations Dropdown for Local */}
         {pane.sessionType === 'local' ? (
@@ -540,6 +545,7 @@ export const FilePaneHeader: React.FC<FilePaneHeaderProps> = ({
           </button>
         </div>
       </div>
+      )}
 
       {/* Expandable Search Filter Bar */}
       {(isSearchOpen || pane.searchFilter) && (
